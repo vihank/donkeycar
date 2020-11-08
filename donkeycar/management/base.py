@@ -58,15 +58,16 @@ class CreateCar(BaseCommand):
         parser.add_argument('--path', default=None, help='path where to create car folder')
         parser.add_argument('--template', default=None, help='name of car template to use')
         parser.add_argument('--overwrite', action='store_true', help='should replace existing files')
+        parser.add_argument('--adv', action='store_true', help='if you want adversarial potential')
         
         parsed_args = parser.parse_args(args)
         return parsed_args
         
     def run(self, args):
         args = self.parse_args(args)
-        self.create_car(path=args.path, template=args.template, overwrite=args.overwrite)
+        self.create_car(path=args.path, template=args.template, overwrite=args.overwrite, adv=args.adv)
   
-    def create_car(self, path, template='complete', overwrite=False):
+    def create_car(self, path, template='complete', overwrite=False, adv=False):
         """
         This script sets up the folder structure for donkey to work.
         It must run without donkey installed so that people installing with
@@ -89,22 +90,33 @@ class CreateCar(BaseCommand):
             
         #add car application and config files if they don't exist
         app_template_path = os.path.join(TEMPLATES_PATH, template+'.py')
+        app_template_path = os.path.join(TEMPLATES_PATH, 'advmanage.py')
         config_template_path = os.path.join(TEMPLATES_PATH, 'cfg_' + template + '.py')
         myconfig_template_path = os.path.join(TEMPLATES_PATH, 'myconfig.py')
         train_template_path = os.path.join(TEMPLATES_PATH, 'train.py')
         calibrate_template_path = os.path.join(TEMPLATES_PATH, 'calibrate.py')
         car_app_path = os.path.join(path, 'manage.py')
+        car_adv_path = os.path.join(path, 'advmanage.py')
         car_config_path = os.path.join(path, 'config.py')
         mycar_config_path = os.path.join(path, 'myconfig.py')
         train_app_path = os.path.join(path, 'train.py')
         calibrate_app_path = os.path.join(path, 'calibrate.py')        
         
-        if os.path.exists(car_app_path) and not overwrite:
-            print('Car app already exists. Delete it and rerun createcar to replace.')
-        else:
-            print("Copying car application template: {}".format(template))
-            shutil.copyfile(app_template_path, car_app_path)
-            
+        if adv:
+            if os.path.exists(car_adv_path) and not overwrite:
+                print('Adversarial car app already exists. Delete it and rerun createcar to replace.')
+            else:
+                print("Copying adversarial car application template: {}".format(template))
+                shutil.copyfile(app_template_path, car_adv_path)
+        
+        else:            
+            if os.path.exists(car_app_path) and not overwrite:
+                print('Car app already exists. Delete it and rerun createcar to replace.')
+            else:
+                print("Copying car application template: {}".format(template))
+                shutil.copyfile(app_template_path, car_app_path)
+
+        
         if os.path.exists(car_config_path) and not overwrite:
             print('Car config already exists. Delete it and rerun createcar to replace.')
         else:
@@ -149,13 +161,14 @@ class UpdateCar(BaseCommand):
     def parse_args(self, args):
         parser = argparse.ArgumentParser(prog='update', usage='%(prog)s [options]')
         parser.add_argument('--template', default=None, help='name of car template to use')
+        parser.add_argument('--adv', action='store_true', help='if you want adversarial potential')
         parsed_args = parser.parse_args(args)
         return parsed_args
         
     def run(self, args):
         args = self.parse_args(args)
         cc = CreateCar()
-        cc.create_car(path=".", overwrite=True, template=args.template)
+        cc.create_car(path=".", overwrite=True, template=args.template, adv=args.adv)
         
 
 class FindCar(BaseCommand):
