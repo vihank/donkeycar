@@ -90,7 +90,7 @@ class CreateCar(BaseCommand):
             
         #add car application and config files if they don't exist
         app_template_path = os.path.join(TEMPLATES_PATH, template+'.py')
-        app_template_path = os.path.join(TEMPLATES_PATH, 'advmanage.py')
+        app_template_path = os.path.join(TEMPLATES_PATH, 'advcomplete.py')
         config_template_path = os.path.join(TEMPLATES_PATH, 'cfg_' + template + '.py')
         myconfig_template_path = os.path.join(TEMPLATES_PATH, 'myconfig.py')
         train_template_path = os.path.join(TEMPLATES_PATH, 'train.py')

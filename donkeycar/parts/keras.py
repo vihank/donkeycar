@@ -270,13 +270,16 @@ class KerasDisc(KerasPilot):
     '''
     The KerasDisc pilot is my attempt at a pilot for AP Research
     '''
+    from tensorflow.keras.optimizers import adam
+    
     def __init__(self, num_outputs=2, input_shape=(120, 160, 3), roi_crop=(0, 0), *args, **kwargs):
         super(KerasDisc, self).__init__(*args, **kwargs)
         self.model = default_disc(num_outputs, input_shape, roi_crop)
         self.compile()
 
     def compile(self):
-        self.model.compile(optimizer=self.optimizer,
+        adam = Adam(lr=1e-4, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+        self.model.compile(optimizer="adam",
                 loss='mse')
 
     def run(self, img_arr):
@@ -336,25 +339,59 @@ def default_categorical(input_shape=(120, 160, 3), roi_crop=(0, 0)):
 
 
 def default_disc(num_outputs, input_shape=(120, 160, 3), roi_crop=(0, 0)):
+    '''
+    sample dave-2 architecture from tech-rules on github
+    input_shape = (66, 200, 3)
+    model = Sequential()
+    # Input normalization layer
+    model.add(Lambda(lambda x: x/127.5 - 1., input_shape=input_shape, name='lambda_norm'))
 
-    drop = 0.1
+    # 5x5 Convolutional layers with stride of 2x2
+    model.add(Convolution2D(24, 5, 5, subsample=(2, 2), border_mode="valid", name='conv1'))
+    model.add(ELU(name='elu1'))
+    model.add(Convolution2D(36, 5, 5, subsample=(2, 2), border_mode="valid", name='conv2'))
+    model.add(ELU(name='elu2'))
+    model.add(Convolution2D(48, 5, 5, subsample=(2, 2), border_mode="valid", name='conv3'))
+    model.add(ELU(name='elu3'))
+
+    # 3x3 Convolutional layers with stride of 1x1
+    model.add(Convolution2D(64, 3, 3, subsample=(1, 1), border_mode="valid", name='conv4'))
+    model.add(ELU(name='elu4'))
+    model.add(Convolution2D(64, 3, 3, subsample=(1, 1), border_mode="valid", name='conv5'))
+    model.add(ELU(name='elu5'))
+
+    # Flatten before passing to Fully Connected layers
+    model.add(Flatten())
+    # Three fully connected layers
+    model.add(Dense(100, name='fc1'))
+    model.add(Dropout(.5, name='do1'))
+    model.add(ELU(name='elu6'))
+    model.add(Dense(50, name='fc2'))
+    model.add(Dropout(.5, name='do2'))
+    model.add(ELU(name='elu7'))
+    model.add(Dense(10, name='fc3'))
+    model.add(Dropout(.5, name='do3'))
+    model.add(ELU(name='elu8'))
+
+    # Output layer with tanh activation 
+    model.add(Dense(1, activation='tanh', name='output'))
+
+    adam = Adam(lr=1e-4, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+    model.compile(optimizer="adam", loss="mse")
+    '''
+    drop = 0.5
 
     #we now expect that cropping done elsewhere. we will adjust our expected image size here:
     input_shape = adjust_input_shape(input_shape, roi_crop)
     
     img_in = Input(shape=input_shape, name='img_in')
     x = img_in
-    x = BatchNormalization()
-    x = Convolution2D(24, (5,5), strides=(2,2), activation='relu', name="conv2d_1")(x)
-    x = Dropout(drop)(x)
-    x = Convolution2D(32, (5,5), strides=(2,2), activation='relu', name="conv2d_2")(x)
-    x = Dropout(drop)(x)
-    x = Convolution2D(64, (5,5), strides=(2,2), activation='relu', name="conv2d_3")(x)
-    x = Dropout(drop)(x)
-    x = Convolution2D(64, (3,3), strides=(1,1), activation='relu', name="conv2d_4")(x)
-    x = Dropout(drop)(x)
-    x = Convolution2D(64, (3,3), strides=(1,1), activation='relu', name="conv2d_5")(x)
-    x = Dropout(drop)(x)
+    x = Lambda(lambda x: x/127.5 - 1., input_shape=input_shape, name='lambda_norm')(x)
+    x = Convolution2D(24, (5,5), strides=(2,2), activation='elu', name="conv2d_1")(x)
+    x = Convolution2D(36, (5,5), strides=(2,2), activation='elu', name="conv2d_2")(x)
+    x = Convolution2D(68, (5,5), strides=(2,2), activation='elu', name="conv2d_3")(x)
+    x = Convolution2D(64, (3,3), strides=(1,1), activation='elu', name="conv2d_4")(x)
+    x = Convolution2D(64, (3,3), strides=(1,1), activation='elu', name="conv2d_5")(x)
     
     x = Flatten(name='flattened')(x)
     x = Dense(1164, activation='relu')(x)
@@ -369,7 +406,7 @@ def default_disc(num_outputs, input_shape=(120, 160, 3), roi_crop=(0, 0)):
     outputs = []
     
     for i in range(num_outputs):
-        outputs.append(Dense(1, activation='linear', name='n_outputs' + str(i))(x))
+        outputs.append(Dense(1, activation='tanh', name='n_outputs' + str(i))(x))
         
     model = Model(inputs=[img_in], outputs=outputs)
     

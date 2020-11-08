@@ -62,7 +62,7 @@ def drive(cfg, model_path=None, model_type=None, meta=[]):
     else:
         raise(Exception("Unkown camera type: %s" % cfg.CAMERA_TYPE))
 
-    V.add(cam, inputs=inputs, outputs=['cam/image_array'], threaded=threaded)
+    V.add(cam, inputs=inputs, outputs=['cam/image_array', 'env/info'], threaded=threaded)
 
 
     #This web controller will create a web server that is capable
@@ -223,15 +223,25 @@ def drive(cfg, model_path=None, model_type=None, meta=[]):
 
     V.add(AiRunCondition(), inputs=['user/mode'], outputs=['ai_running'])
 
+    class envInfoHandler:
+        '''
+        Breaks down info returned from environment for storage in tub
+        '''
+        def run(self, info='env/info'):
+            cte=info['cte']
+
+            return cte
+
+    V.add(envInfoHandler(), inputs=['env/info'], outputs=['env/cte'])
 
     #add tub to save data
     inputs=['cam/image_array',
             'user/angle', 'user/throttle',
-            'user/mode']
+            'user/mode', 'env/cte']
 
     types=['image_array',
            'float', 'float',
-           'str']
+           'str', 'float']
 
     th = TubHandler(path=cfg.DATA_PATH)
     tub = th.new_tub_writer(inputs=inputs, types=types, user_meta=meta)
