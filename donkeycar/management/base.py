@@ -90,7 +90,6 @@ class CreateCar(BaseCommand):
             
         #add car application and config files if they don't exist
         app_template_path = os.path.join(TEMPLATES_PATH, template+'.py')
-        app_template_path = os.path.join(TEMPLATES_PATH, 'advcomplete.py')
         config_template_path = os.path.join(TEMPLATES_PATH, 'cfg_' + template + '.py')
         myconfig_template_path = os.path.join(TEMPLATES_PATH, 'myconfig.py')
         train_template_path = os.path.join(TEMPLATES_PATH, 'train.py')
@@ -103,6 +102,7 @@ class CreateCar(BaseCommand):
         calibrate_app_path = os.path.join(path, 'calibrate.py')        
         
         if adv:
+            app_template_path = os.path.join(TEMPLATES_PATH, 'advcomplete.py')
             if os.path.exists(car_adv_path) and not overwrite:
                 print('Adversarial car app already exists. Delete it and rerun createcar to replace.')
             else:

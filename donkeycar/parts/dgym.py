@@ -1,5 +1,4 @@
 import os
-import os
 import time
 import gym
 import gym_donkeycar
@@ -26,7 +25,7 @@ class DonkeyGymEnv(object):
         self.frame = self.env.reset()
         self.action = [0.0, 0.0]
         self.running = True
-        self.info = { 'pos' : (0., 0., 0.)}
+        self.info = {'pos' : None, 'cte' : None}
         self.delay = float(delay)
         
     def update(self):

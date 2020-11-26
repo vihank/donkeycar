@@ -48,7 +48,7 @@ class MakeMovie(object):
                 print("ERR>> salient visualization requires a model. Pass with the --model arg.")
                 parser.print_help()
 
-            if args.type not in ['linear', 'categorical']:
+            if args.type not in ['linear', 'categorical', 'disc']:
                 print("Model type {} is not supported. Only linear or categorical is supported for salient visualization".format(args.type))
                 parser.print_help()
                 return

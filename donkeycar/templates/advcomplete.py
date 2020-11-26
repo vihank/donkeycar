@@ -3,8 +3,8 @@
 Scripts to drive a donkey 2 car
 
 Usage:
-    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent)] [--meta=<key:value> ...] [--myconfig=<filename>] [--adv]
-    advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer)] [--continuous] [--aug] [--myconfig=<filename>] [--adv]
+    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|disc)] [--meta=<key:value> ...] [--myconfig=<filename>] [--adv]
+    advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|disc)] [--continuous] [--aug] [--myconfig=<filename>]
 
 
 Options:
@@ -90,9 +90,6 @@ def drive(cfg, model_path=None, model_type=None, meta=[]):
     V.add(PilotCondition(), inputs=['user/mode'], outputs=['run_pilot'])
 
     if model_type is None:
-        if args['--adv']:
-            model_type = "disc"
-        else:
             model_type = cfg.DEFAULT_MODEL_TYPE
 
     def get_record_alert_color(num_records):
@@ -276,9 +273,6 @@ if __name__ == '__main__':
         continuous = args['--continuous']
         aug = args['--aug']
         dirs = preprocessFileList( args['--file'] )
-
-        if args['--adv']:
-            model_type = 'disc'
             
         if tub is not None:
             tub_paths = [os.path.expanduser(n) for n in tub.split(',')]

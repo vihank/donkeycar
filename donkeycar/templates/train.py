@@ -40,6 +40,7 @@ from donkeycar.parts.keras import KerasLinear, KerasIMU,\
 from donkeycar.parts.augment import augment_image
 from donkeycar.utils import *
 
+
 figure_format = 'png'
 
 
@@ -286,6 +287,11 @@ def train(cfg, tub_names, model_name, transfer_model, model_type, continuous, au
     ''' 
     verbose = cfg.VERBOSE_TRAIN
 
+    if cfg.SEND_WANDB:
+        import wandb
+        from wandb.keras import WandbCallback
+        wandb.init(project="donkeyadv")
+
     if model_type is None:
         model_type = cfg.DEFAULT_MODEL_TYPE
 
@@ -336,7 +342,8 @@ def train(cfg, tub_names, model_name, transfer_model, model_type, continuous, au
                 kl.model.layers[i].trainable = False        
 
     if cfg.OPTIMIZER:
-        kl.set_optimizer(cfg.OPTIMIZER, cfg.LEARNING_RATE, cfg.LEARNING_RATE_DECAY)
+        kl.set_optimizer(cfg.OPTIMIZER, cfg.LEARNING_RATE, cfg.LEARNING_RATE_DECAY, cfg.BETA_1,
+                         cfg.BETA_2, cfg.EPSILON)
 
     kl.compile()
 
@@ -573,6 +580,9 @@ def go_train(kl, cfg, train_gen, val_gen, gen_records, model_name, steps_per_epo
 
     callbacks_list = [save_best]
 
+    if cfg.SEND_WANDB:
+        callbacks_list.append(WandCallback())
+
     if cfg.USE_EARLY_STOP and not continuous:
         callbacks_list.append(early_stop)
 
@@ -594,6 +604,7 @@ def go_train(kl, cfg, train_gen, val_gen, gen_records, model_name, steps_per_epo
     print("Training completed in %s." % str(datetime.timedelta(seconds=round(duration_train))) )
 
     print("\n\n----------- Best Eval Loss :%f ---------" % save_best.best)
+
 
     if cfg.SHOW_PLOT:
         try:
@@ -684,6 +695,9 @@ def go_train(kl, cfg, train_gen, val_gen, gen_records, model_name, steps_per_epo
         # flatten model_path
         # convert to uff
         # print("Saved TensorRT model:", uff_filename)
+
+    if cfg.SEND_WANDB:
+        model.save(os.path.join(wandb.run.dir, model_name))
 
     
 def sequence_train(cfg, tub_names, model_name, transfer_model, model_type, continuous, aug):
