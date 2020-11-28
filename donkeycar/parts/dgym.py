@@ -25,7 +25,7 @@ class DonkeyGymEnv(object):
         self.frame = self.env.reset()
         self.action = [0.0, 0.0]
         self.running = True
-        self.info = {'pos' : None, 'cte' : None}
+        self.info = {'pos' : (0., 0., 0.), 'cte' : None}
         self.delay = float(delay)
         
     def update(self):

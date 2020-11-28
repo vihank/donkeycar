@@ -175,11 +175,6 @@ def drive(cfg, model_path=None, model_type=None, meta=[]):
             print("ERR>> Unknown extension type on model file!!")
             return
 
-        #these parts will reload the model file, but only when ai is running so we don't interrupt user driving
-        V.add(FileWatcher(model_path), outputs=['modelfile/dirty'], run_condition="ai_running")
-        V.add(DelayedTrigger(100), inputs=['modelfile/dirty'], outputs=['modelfile/reload'], run_condition="ai_running")
-        V.add(TriggeredCallback(model_path, model_reload_cb), inputs=["modelfile/reload"], run_condition="ai_running")
-
         outputs=['pilot/angle', 'pilot/throttle']
 
         if cfg.TRAIN_LOCALIZER:
@@ -226,19 +221,28 @@ def drive(cfg, model_path=None, model_type=None, meta=[]):
         '''
         def run(self, info='env/info'):
             cte=info['cte']
+            pos_x = info['pos'][0]
+            pos_z = info['pos'][2]
 
-            return cte
-
-    V.add(envInfoHandler(), inputs=['env/info'], outputs=['env/cte'])
+            return cte, pos_x, pos_z
 
     #add tub to save data
     inputs=['cam/image_array',
             'user/angle', 'user/throttle',
-            'user/mode', 'env/cte']
+            'user/mode']
 
     types=['image_array',
            'float', 'float',
-           'str', 'float']
+           'str']
+
+    if cfg.DONKEY_GYM:
+            V.add(envInfoHandler(), inputs=['env/info'], outputs=['env/cte','env/pos_x', 'env/pos_z'])
+            inputs.append('env/cte')
+            inputs.append('env/pos_x')
+            inputs.append('env/pos_z')
+            types.append('float')
+            types.append('float')
+            types.append('float')
 
     th = TubHandler(path=cfg.DATA_PATH)
     tub = th.new_tub_writer(inputs=inputs, types=types, user_meta=meta)

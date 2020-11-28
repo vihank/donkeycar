@@ -107,8 +107,12 @@ PRINT_MODEL_SUMMARY = True      #print layers and weights to stdout
 OPTIMIZER = None                #adam, sgd, rmsprop, etc.. None accepts default
 LEARNING_RATE = 0.001           #only used when OPTIMIZER specified
 LEARNING_RATE_DECAY = 0.0       #only used when OPTIMIZER specified
+BETA_1 = 0.9                    #only used when OPTIMIZER is adam
+BETA_2 = 0.999                  #only used when OPTIMIZER is adam
+EPSILON = 0.00000001            #only used when OPTIMIZER is adam
 SEND_BEST_MODEL_TO_PI = False   #change to true to automatically send best model during training
 CACHE_IMAGES = True             #keep images in memory. will speed succesive epochs, but crater if not enough mem.
+SEND_WANDB = False              #wandb data gathering for visualization
 
 PRUNE_CNN = False               #This will remove weights from your model. The primary goal is to increase performance.
 PRUNE_PERCENT_TARGET = 75       # The desired percentage of pruning.

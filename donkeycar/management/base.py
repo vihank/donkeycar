@@ -334,6 +334,13 @@ class ShowHistogram(BaseCommand):
         if record_name is not None:
             tg.df[record_name].hist(bins=50)
         else:
+            pos = plt
+            pos.figure()
+            pos.plot(tg.df['env/pos_x'], tg.df['env/pos_z'])
+            pos.xlabel('X Position')
+            pos.ylabel('Y Position')
+            pos.title('Position of Car')
+            plt.figure()
             tg.df.hist(bins=50)
   
         try:
@@ -354,6 +361,83 @@ class ShowHistogram(BaseCommand):
         args = self.parse_args(args)
         args.tub = ','.join(args.tub)
         self.show_histogram(args.tub, args.record, args.out)
+
+class hotLap(BaseCommand):
+    '''
+    find best lap out of tub and create histogram of data 
+    '''
+    #TODO look through saved data to find one lap where env/cte variance is minimized
+    #within 5 units of 50 for env/pos_x and within 5 of 50 for env/pos_z is one lap
+
+    def parse_args(self, args):
+        parser = argparse.ArgumentParser(prog='hotlap', usage='%(prog)s [options]')
+        parser.add_argument('--tub', nargs='+', help='paths to tubs')
+        parser.add_argument('--record', default=None, help='name of record to create histogram')
+        parser.add_argument('--out', default='hotlaps', help='path where to save histogram end with .png')
+        parsed_args = parser.parse_args(args)
+        return parsed_args
+
+    def findBestLap(self, tub_paths, record_name, out):
+        import pandas as pd
+        from donkeycar.parts.datastore import TubGroup
+        
+        output = out or os.path.basename(tub_paths)
+        tg = TubGroup(tub_paths=tub_paths)
+
+        bestSTD = 5000
+        bestLapStart = 0
+        bestLapEnd = None
+        lapStart = 0
+        lapEnd = None
+        for index, row in tg.df.iterrows():
+            if 45 <= row['pos_x'] <= 55 and 45 <= row['pos_z'] <= 55:
+                currSTD = tg.df['env/cte'].iloc[lapStart:lapEnd].std()
+                if  currSTD < bestSTD:
+                    bestLapStart = lapStart
+                    bestLapEnd = lapEnd
+                    bestSTD = currSTD
+                    '''
+                    chunk the data
+                    if the standard deviation of the lap is less then the previous best, then save it as beststd and bestlap indicies
+                    '''
+
+        bestLap = tg.df.iloc[bestLapStart:bestLapEnd]
+
+        return bestLap, record_name, output
+
+    def create_plots(self, tg, record_name, output):
+        from matplotlib import pyplot as plt
+
+        if record_name is not None:
+            tg.hist(bins=50)
+        else:
+            pos = plt
+            pos.figure()
+            pos.plot(tg.df['env/pos_x'], tg.df['env/pos_z'])
+            pos.xlabel('X Position')
+            pos.ylabel('Y Position')
+            pos.title('Position of Car')
+            plt.figure()
+            tg.df['env/cte'].hist(bins=50)
+            plt.title('Cross Track Error')
+        
+        try:
+            filename = output
+
+            if record_name is not None:
+                filename = output + '_hist_%s.png' % record_name.replace('/', '_')
+            else:
+                filename = output + '_hist.png'
+            plt.savefig(filename)
+            print('saving image to:', filename)
+        except Exception as e:
+            print(e)
+        plt.show()
+
+    def run(self, args):
+        args = self.parse_args(args)
+        args.tub = ','.join(args.tub)
+        self.create_plots(self.findBestLap(args.tub, args.record, args.out))
 
 
 class ConSync(BaseCommand):
@@ -636,7 +720,8 @@ def execute_from_command_line():
             'consync': ConSync,
             'contrain': ConTrain,
             'cnnactivations': ShowCnnActivations,
-            'update': UpdateCar
+            'update': UpdateCar,
+            'bestlap': hotLap,
                 }
     
     args = sys.argv[:]
