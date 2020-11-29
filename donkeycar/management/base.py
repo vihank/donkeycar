@@ -335,7 +335,6 @@ class ShowHistogram(BaseCommand):
             tg.df[record_name].hist(bins=50)
         else:
             pos = plt
-            pos.figure()
             pos.plot(tg.df['env/pos_x'], tg.df['env/pos_z'])
             pos.xlabel('X Position')
             pos.ylabel('Y Position')
@@ -373,53 +372,61 @@ class hotLap(BaseCommand):
         parser = argparse.ArgumentParser(prog='hotlap', usage='%(prog)s [options]')
         parser.add_argument('--tub', nargs='+', help='paths to tubs')
         parser.add_argument('--record', default=None, help='name of record to create histogram')
-        parser.add_argument('--out', default='hotlaps', help='path where to save histogram end with .png')
+        parser.add_argument('--out', default='tub', help='path where to save histogram end with .png')
         parsed_args = parser.parse_args(args)
         return parsed_args
 
-    def findBestLap(self, tub_paths, record_name, out):
+    def findBestLap(self, tub_paths):
         import pandas as pd
         from donkeycar.parts.datastore import TubGroup
         
-        output = out or os.path.basename(tub_paths)
         tg = TubGroup(tub_paths=tub_paths)
 
+        #find index values in data for when the car passes over the finish line
+        lapIdx = [0]
+        for index, row in tg.df.iterrows():
+            if index < lapIdx[-1] + 100:
+                continue
+
+            if 45 <= row['env/pos_x'] <= 55 and 45 <= row['env/pos_z'] <= 55:
+                lapIdx.append(index)
+        print(lapIdx)
+
+        #find the best lap in terms of least deviation from cross track error
         bestSTD = 5000
+        bestLapId = 0
         bestLapStart = 0
         bestLapEnd = None
-        lapStart = 0
-        lapEnd = None
-        for index, row in tg.df.iterrows():
-            if 45 <= row['pos_x'] <= 55 and 45 <= row['pos_z'] <= 55:
-                currSTD = tg.df['env/cte'].iloc[lapStart:lapEnd].std()
-                if  currSTD < bestSTD:
-                    bestLapStart = lapStart
-                    bestLapEnd = lapEnd
-                    bestSTD = currSTD
-                    '''
-                    chunk the data
-                    if the standard deviation of the lap is less then the previous best, then save it as beststd and bestlap indicies
-                    '''
+        for idx in range(len(lapIdx)-1):
+            lapStart = lapIdx[idx]
+            lapEnd = lapIdx[idx+1]
+            currLap = tg.df['env/cte'].iloc[lapStart:lapEnd]
+            currSTD = currLap.std()
+            if currSTD < bestSTD:
+                bestSTD = currSTD
+                bestLapStart = lapStart
+                bestLapEnd = lapEnd
+                bestLapId = idx + 1
+        print('Best standard deviation of: {}' .format(bestSTD))
+        print('Best lap: {}' .format(bestLapId))
 
         bestLap = tg.df.iloc[bestLapStart:bestLapEnd]
 
-        return bestLap, record_name, output
+        return bestLap
 
-    def create_plots(self, tg, record_name, output):
+    def create_plots(self, tg, record_name, output, tub):
         from matplotlib import pyplot as plt
 
-        if record_name is not None:
-            tg.hist(bins=50)
-        else:
-            pos = plt
-            pos.figure()
-            pos.plot(tg.df['env/pos_x'], tg.df['env/pos_z'])
-            pos.xlabel('X Position')
-            pos.ylabel('Y Position')
-            pos.title('Position of Car')
-            plt.figure()
-            tg.df['env/cte'].hist(bins=50)
-            plt.title('Cross Track Error')
+        pos = plt
+        pos.plot(tg['env/pos_x'], tg['env/pos_z'])
+        pos.xlabel('X Position')
+        pos.ylabel('Y Position')
+        pos.title('Position of Car on Best Lap')
+        plt.figure()
+        tg['env/cte'].hist(bins=50)
+        plt.figtext(0.2,0.7, tg['env/cte'].describe().loc[['count','std', 'min', 'max']].to_string())
+        plt.grid(False)
+        plt.title('Cross Track Error on Best Lap')
         
         try:
             filename = output
@@ -427,7 +434,8 @@ class hotLap(BaseCommand):
             if record_name is not None:
                 filename = output + '_hist_%s.png' % record_name.replace('/', '_')
             else:
-                filename = output + '_hist.png'
+                tubName = tub.split('/')
+                filename = 'hotlaps/' + tubName[-1] + '_data.png'
             plt.savefig(filename)
             print('saving image to:', filename)
         except Exception as e:
@@ -437,7 +445,8 @@ class hotLap(BaseCommand):
     def run(self, args):
         args = self.parse_args(args)
         args.tub = ','.join(args.tub)
-        self.create_plots(self.findBestLap(args.tub, args.record, args.out))
+        bestLap = self.findBestLap(args.tub)
+        self.create_plots(bestLap, args.record, args.out, args.tub)
 
 
 class ConSync(BaseCommand):
