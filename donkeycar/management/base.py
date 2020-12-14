@@ -334,13 +334,17 @@ class ShowHistogram(BaseCommand):
         if record_name is not None:
             tg.df[record_name].hist(bins=50)
         else:
-            pos = plt
-            pos.plot(tg.df['env/pos_x'], tg.df['env/pos_z'])
-            pos.xlabel('X Position')
-            pos.ylabel('Y Position')
-            pos.title('Position of Car')
-            plt.figure()
+            try:
+                pos = plt
+                pos.plot(tg.df['env/pos_x'], tg.df['env/pos_z'])
+                pos.xlabel('X Position')
+                pos.ylabel('Y Position')
+                pos.title('Position of Car')
+                plt.figure()
+            except Exception as e:
+                print(e)
             tg.df.hist(bins=50)
+            plt.figtext(0.2,0.7, tg.df['env/cte'].describe().loc[['count']].to_string() + "records")
   
         try:
             if out is not None:
@@ -390,7 +394,6 @@ class hotLap(BaseCommand):
 
             if 45 <= row['env/pos_x'] <= 55 and 45 <= row['env/pos_z'] <= 55:
                 lapIdx.append(index)
-        print(lapIdx)
 
         #find the best lap in terms of least deviation from cross track error
         bestSTD = 5000
@@ -400,8 +403,7 @@ class hotLap(BaseCommand):
         for idx in range(len(lapIdx)-1):
             lapStart = lapIdx[idx]
             lapEnd = lapIdx[idx+1]
-            currLap = tg.df['env/cte'].iloc[lapStart:lapEnd]
-            currSTD = currLap.std()
+            currSTD = tg.df['env/cte'].iloc[lapStart:lapEnd].std()
             if currSTD < bestSTD:
                 bestSTD = currSTD
                 bestLapStart = lapStart
@@ -409,6 +411,7 @@ class hotLap(BaseCommand):
                 bestLapId = idx + 1
         print('Best standard deviation of: {}' .format(bestSTD))
         print('Best lap: {}' .format(bestLapId))
+        print('There were {} laps in the tubs' .format(len(lapIdx-1)))
 
         bestLap = tg.df.iloc[bestLapStart:bestLapEnd]
 

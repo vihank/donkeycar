@@ -1,6 +1,6 @@
 '''
 
-pilots.py
+keras.py
 
 Methods to create, use, save and load pilots. Pilots 
 contain the highlevel logic used to determine the angle
