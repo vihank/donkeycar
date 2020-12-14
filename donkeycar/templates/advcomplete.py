@@ -3,8 +3,8 @@
 Scripts to drive a donkey 2 car
 
 Usage:
-    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|disc)] [--meta=<key:value> ...] [--myconfig=<filename>] [--adv]
-    advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|disc)] [--continuous] [--aug] [--myconfig=<filename>]
+    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|dave2)] [--meta=<key:value> ...] [--myconfig=<filename>] [--adv]
+    advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|dav2)] [--continuous] [--aug] [--myconfig=<filename>] [--adv] [--model_out=<model_out>]
 
 
 Options:
@@ -15,6 +15,7 @@ Options:
     --myconfig=filename     Specify myconfig file to use. 
                             [default: myconfig.py]
 """
+from donkeycar.donkeycar.utils import get_model_by_type, load_model
 import os
 import time
 
@@ -150,15 +151,10 @@ def drive(cfg, model_path=None, model_type=None, meta=[]):
    
     inputs=[inf_input]
 
-    def load_model(kl, model_path):
-        start = time.time()
-        print('loading model', model_path)
-        kl.load(model_path)
-        print('finished loading in %s sec.' % (str(time.time() - start)) )
 
     if model_path:
         #When we have a model, first create an appropriate Keras part
-        kl = dk.utils.get_model_by_type(model_type, cfg)
+        kl = get_model_by_type(model_type, cfg)
 
         model_reload_cb = None
 
@@ -277,7 +273,9 @@ if __name__ == '__main__':
         continuous = args['--continuous']
         aug = args['--aug']
         dirs = preprocessFileList( args['--file'] )
-            
+        adv = args['--adv']
+        model_out = args['--model_out']
+
         if tub is not None:
             tub_paths = [os.path.expanduser(n) for n in tub.split(',')]
             dirs.extend( tub_paths )
@@ -286,5 +284,4 @@ if __name__ == '__main__':
             model_type = cfg.DEFAULT_MODEL_TYPE
             print("using default model type of", model_type)
 
-        multi_train(cfg, dirs, model, transfer, model_type, continuous, aug)
-
+        multi_train(cfg, dirs, model, transfer, model_type, continuous, aug, adv, model_out)

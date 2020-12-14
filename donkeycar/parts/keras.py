@@ -266,13 +266,13 @@ class KerasLocalizer(KerasPilot):
 
         return angle, throttle, loc
 
-class KerasDisc(KerasPilot):
+class KerasDave2(KerasPilot):
     '''
-    The KerasDisc pilot is my attempt at a discriminator for AP Research
+    The KerasDave pilot is my attempt at an end-to-end model that mimics the paper by Bojarski et al.
     '''
     def __init__(self, num_outputs=2, input_shape=(120, 160, 3), roi_crop=(0, 0), *args, **kwargs):
-        super(KerasDisc, self).__init__(*args, **kwargs)
-        self.model = default_disc(num_outputs, input_shape, roi_crop)
+        super(KerasDave2, self).__init__(*args, **kwargs)
+        self.model = default_dave2(num_outputs, input_shape, roi_crop)
         self.compile()
 
     def compile(self):
@@ -293,7 +293,7 @@ def adjust_input_shape(input_shape, roi_crop):
 
 
 
-def default_disc(num_outputs, input_shape=(120, 160, 3), roi_crop=(0, 0)):
+def default_dave2(num_outputs, input_shape=(120, 160, 3), roi_crop=(0, 0)):
     '''
     implementation of DAVE-2 model architecture
     '''

@@ -16,6 +16,7 @@ import math
 import random
 import time
 import signal
+import json
 
 
 from PIL import Image
@@ -456,7 +457,7 @@ def get_model_by_type(model_type, cfg):
     '''
     from donkeycar.parts.keras import KerasRNN_LSTM, KerasBehavioral, \
         KerasCategorical, KerasIMU, KerasLinear, Keras3D_CNN, \
-        KerasLocalizer, KerasLatent, KerasDisc
+        KerasLocalizer, KerasLatent, KerasDave2
     from donkeycar.parts.tflite import TFLitePilot
 
     if model_type is None:
@@ -468,8 +469,8 @@ def get_model_by_type(model_type, cfg):
 
     if model_type == "tflite_linear":
         kl = TFLitePilot()
-    elif model_type == "disc":
-        kl = KerasDisc(num_outputs=2, input_shape=input_shape, roi_crop=(0, 0))
+    elif model_type == "dave2":
+        kl = KerasDave2(num_outputs=2, input_shape=input_shape, roi_crop=(0, 0))
     elif model_type == "localizer" or cfg.TRAIN_LOCALIZER:
         kl = KerasLocalizer(num_locations=cfg.NUM_LOCATIONS, input_shape=input_shape)
     elif model_type == "behavior" or cfg.TRAIN_BEHAVIORS:
@@ -502,6 +503,12 @@ def get_model_by_type(model_type, cfg):
 
     return kl
 
+
+def load_model(kl, model_path):
+        start = time.time()
+        print('loading model', model_path)
+        kl.load(model_path)
+        print('finished loading in %s sec.' % (str(time.time() - start)) )
 
 def get_test_img(model):
     '''

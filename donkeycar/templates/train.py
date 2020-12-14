@@ -167,25 +167,6 @@ def collate_records(records, gen_records, opts):
     # Finally add all the new records to the existing list
     gen_records.update(new_records)
 
-def save_json_and_weights(model, filename):
-    '''
-    given a keras model and a .h5 filename, save the model file
-    in the json format and the weights file in the h5 format
-    '''
-    if not '.h5' == filename[-3:]:
-        raise Exception("Model filename should end with .h5")
-
-    arch = model.to_json()
-    json_fnm = filename[:-2] + "json"
-    weights_fnm = filename[:-2] + "weights"
-
-    with open(json_fnm, "w") as outfile:
-        parsed = json.loads(arch)
-        arch_pretty = json.dumps(parsed, indent=4, sort_keys=True)
-        outfile.write(arch_pretty)
-
-    model.save_weights(weights_fnm)
-    return json_fnm, weights_fnm
 
 
 class MyCPCallback(keras.callbacks.ModelCheckpoint):
@@ -905,15 +886,21 @@ def sequence_train(cfg, tub_names, model_name, transfer_model, model_type, conti
     '''
 
 
-def multi_train(cfg, tub, model, transfer, model_type, continuous, aug):
+def adv_train(cfg, tub, model, model_out, model_type):
+    from donkeycar.parts.advgan import advTrain
+
+    advTrain(cfg, tub, model, model_out, model_type)
+
+def multi_train(cfg, tub, model, transfer, model_type, continuous, aug, adv, model_out):
     '''
     choose the right regime for the given model type
     '''
-    train_fn = train
-    if model_type in ("rnn",'3d','look_ahead'):
-        train_fn = sequence_train
-
-    train_fn(cfg, tub, model, transfer, model_type, continuous, aug)
+    if adv:
+        adv_train(cfg, tub, model, model_out, model_type)
+    elif model_type in ("rnn",'3d','look_ahead'):
+        sequence_train(cfg, tub, model, transfer, model_type, continuous, aug)
+    else:
+        train(cfg, tub, model, transfer, model_type, continuous, aug)
 
 
 def prune(model, validation_generator, val_steps, cfg):
