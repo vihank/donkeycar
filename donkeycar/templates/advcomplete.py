@@ -3,7 +3,7 @@
 Scripts to drive a donkey 2 car
 
 Usage:
-    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|dave2)] [--meta=<key:value> ...] [--myconfig=<filename>] [--adv]
+    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|dave2)] [--meta=<key:value> ...] [--myconfig=<filename>] [--adv=<path>]
     advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|dav2)] [--continuous] [--aug] [--myconfig=<filename>] [--adv] [--model_out=<model_out>]
 
 
@@ -31,7 +31,7 @@ from donkeycar.parts.throttle_filter import ThrottleFilter
 from donkeycar.parts.file_watcher import FileWatcher
 from donkeycar.utils import *
 
-def drive(cfg, model_path=None, model_type=None, meta=[]):
+def drive(cfg, model_path=None, model_type=None, meta=[], adv):
     '''
     Construct a working robotic vehicle from many parts.
     Each part runs as a job in the Vehicle loop, calling either
@@ -149,6 +149,11 @@ def drive(cfg, model_path=None, model_type=None, meta=[]):
         run_condition='run_pilot')
 
    
+    if adv is not None:
+        from donkeycar.parts.advgan import advDrive
+
+        V.add(advDrive(cfg, adv), inputs=[inf_input], outputs=[inf_input])
+
     inputs=[inf_input]
 
 
@@ -232,13 +237,17 @@ def drive(cfg, model_path=None, model_type=None, meta=[]):
            'str']
 
     if cfg.DONKEY_GYM:
-            V.add(envInfoHandler(), inputs=['env/info'], outputs=['env/cte','env/pos_x', 'env/pos_z'])
-            inputs.append('env/cte')
-            inputs.append('env/pos_x')
-            inputs.append('env/pos_z')
-            types.append('float')
-            types.append('float')
-            types.append('float')
+        V.add(envInfoHandler(), inputs=['env/info'], outputs=['env/cte','env/pos_x', 'env/pos_z'])
+        inputs.append('env/cte')
+        inputs.append('env/pos_x')
+        inputs.append('env/pos_z')
+        types.append('float')
+        types.append('float')
+        types.append('float')
+
+    if adv is not None:
+        inputs.append(inf_input)
+        types.append('image_array')
 
     th = TubHandler(path=cfg.DATA_PATH)
     tub = th.new_tub_writer(inputs=inputs, types=types, user_meta=meta)
@@ -261,7 +270,8 @@ if __name__ == '__main__':
 
         drive(cfg, model_path=args['--model'],
               model_type=model_type,
-              meta=args['--meta'])
+              meta=args['--meta'],
+              adv=args['--adv'])
 
     if args['train']:
         from train import multi_train, preprocessFileList

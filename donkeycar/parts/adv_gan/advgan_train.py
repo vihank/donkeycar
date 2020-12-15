@@ -10,17 +10,17 @@ import tensorflow as tf
 import numpy as np
 import os, sys
 import random
-from donkeycar.parts.adv_gan.advgan_util import *
+from donkeycar.parts.adv_gan.util import *
 from donkeycar.utils import *
 
 
 def advTrainer(cfg, tub_names, model_in_path, model_out_path, model_type):
     '''
     trains a discriminator from given model and uses discriminator to
-    train pertubation generator
+    train perturbation generator
     '''
     if model_type is None:
-        model_type = cfg.DEFAULT_MODEL_TYPE
+        model_type = cfg.DEFAULT_ADV_MODEL_TYPE
 
     if (model_in_path and not '.h5' == model_in_path[-3:]) or (model_out_path and not '.h5' == model_out_path[-3:]):
         raise Exception("Model filename should end with .h5")
@@ -28,35 +28,75 @@ def advTrainer(cfg, tub_names, model_in_path, model_out_path, model_type):
     gen_records = {}
     opts = { 'cfg' : cfg}
 
-    # load model we are trying to fool
-
-    kl = get_model_by_type('dave2', cfg)
-    load_model(kl, model_in_path)
-
-    '''
-    from generator import generator
-    from discriminator import discriminator
-    from target_models import Target as target_model
-    '''
-    X = None
-    y = None
-    X_test = None
-    y_test = None
-    epochs=50
-    batch_size=128
-    target=-1
-
+    #place holders for some reason
     x_pl = tf.placeholder(tf.float32, [None, X.shape[1], X.shape[2], X.shape[3]]) # image placeholder
     t = tf.placeholder(tf.float32, [None, y.shape[-1]]) # target placeholder
     is_training = tf.placeholder(tf.bool, [])
 
-	#-----------------------------------------------------------------------------------
-	# MODEL DEFINITIONS
+    # gather target model
+    # run time for the target model
+    kl = get_model_by_type('dave2', cfg)
+    if '.h5' in model_in_path:
+        load_model(kl, model_in_path)
+    else:
+        print("ERR>> Unknown extension type on model file!!")
+        return
+
+    # gather generator model
+    # train time for the generator model
+    advGen = get_adv_model_by_type(model_type, cfg)
+    advGen.compile()
+
+    if cfg.PRINT_MODEL_SUMMARY:
+        print(advGen.model.summary())
+    
+    opts['adv_gen'] = advGen
+    opts['model_type'] = model_type
+
+    # Gather data from disk
+    extract_data_from_pickles(cfg, tub_names)
+
+    records = gather_records(cfg, tub_names, opts, verbose=True)
+    print('collating %d records ...' % (len(records)))
+    collate_records(records, gen_records, opts)
+    
+    # targeted vs untargeted attack
     is_targeted = False
 
-	# gather target model
-    f = target_model()
     thresh = 0.3
+
+    train_gen = dataDivide(save_best, opts, gen_records, cfg.BATCH_SIZE, True)
+    val_gen = dataDivide(save_best, opts, gen_records, cfg.BATCH_SIZE, False)
+
+    total_records = len(gen_records)
+
+    num_train = 0
+    num_val = 0
+
+    for key, _record in gen_records.items():
+        if _record['train'] == True:
+            num_train += 1
+        else:
+            num_val += 1
+
+    print("train: %d, val: %d" % (num_train, num_val))
+    print('total records: %d' %(total_records))
+    
+    if not continuous:
+        steps_per_epoch = num_train // cfg.BATCH_SIZE
+    else:
+        steps_per_epoch = 100
+    
+    val_steps = num_val // cfg.BATCH_SIZE
+    print('steps_per_epoch', steps_per_epoch)
+
+    cfg.model_type = model_type
+
+    #TODO change the training below to match donkeycar training if possible
+
+    '''
+    # init generator probably not needed with earlier load_model()
+    generator(model_type)
 
 	# generate perturbation, add to original input image(s)
     perturb = tf.clip_by_value(generator(x_pl, is_training), -thresh, thresh)
@@ -64,49 +104,49 @@ def advTrainer(cfg, tub_names, model_in_path, model_out_path, model_type):
     x_perturbed = tf.clip_by_value(x_perturbed, 0, 1)
 
 	# pass real and perturbed image to discriminator and the target model
-	d_real_logits, d_real_probs = discriminator(x_pl, is_training)
-	d_fake_logits, d_fake_probs = discriminator(x_perturbed, is_training)
+    d_real_angle, d_real_throt = discriminator(x_pl, is_training)
+    d_fake_angle, d_fake_throt = discriminator(x_perturbed, is_training)
 	
 	# pass real and perturbed images to the model we are trying to fool
-	f_real_logits, f_real_probs = f.ModelC(x_pl)
-	f_fake_logits, f_fake_probs = f.ModelC(x_perturbed)
+    f_real_angle, f_real_thrott = kl.run(x_pl)
+    f_fake_angle, f_fake_thrott = kl.run(x_perturbed)
 
 	
 	# generate labels for discriminator (optionally smooth labels for stability)
-	smooth = 0.0
-	d_labels_real = tf.ones_like(d_real_probs) * (1 - smooth)
-	d_labels_fake = tf.zeros_like(d_fake_probs)
+    smooth = 0.0
+    d_labels_real = tf.ones_like(d_real_probs) * (1 - smooth)
+    d_labels_fake = tf.zeros_like(d_fake_probs)
 
 	#-----------------------------------------------------------------------------------
 	# LOSS DEFINITIONS
 	# discriminator loss
-	d_loss_real = tf.losses.mean_squared_error(predictions=d_real_probs, labels=d_labels_real)
-	d_loss_fake = tf.losses.mean_squared_error(predictions=d_fake_probs, labels=d_labels_fake)
-	d_loss = d_loss_real + d_loss_fake
+    d_loss_real = tf.losses.mean_squared_error(predictions=d_real_probs, labels=d_labels_real)
+    d_loss_fake = tf.losses.mean_squared_error(predictions=d_fake_probs, labels=d_labels_fake)
+    d_loss = d_loss_real + d_loss_fake
 
 	# generator loss
-	g_loss_fake = tf.losses.mean_squared_error(predictions=d_fake_probs, labels=tf.ones_like(d_fake_probs))
+    g_loss_fake = tf.losses.mean_squared_error(predictions=d_fake_probs, labels=tf.ones_like(d_fake_probs))
 
 	# perturbation loss (minimize overall perturbation)
-	l_perturb = perturb_loss(perturb, thresh)
+    l_perturb = perturb_loss(perturb, thresh)
 
 	# adversarial loss (encourage misclassification)
-	l_adv = adv_loss(f_fake_probs, t, is_targeted)
+    l_adv = adv_loss(f_fake_probs, t, is_targeted)
 
 	# weights for generator loss function
-	alpha = 1.0
-	beta = 5.0
-	g_loss = l_adv + alpha*g_loss_fake + beta*l_perturb 
+    alpha = 1.0
+    beta = 5.0
+    g_loss = l_adv + alpha*g_loss_fake + beta*l_perturb 
 
 	# ----------------------------------------------------------------------------------
 	# gather variables for training/restoring
-	t_vars = tf.trainable_variables()
-	f_vars = [var for var in t_vars if 'ModelC' in var.name]
-	d_vars = [var for var in t_vars if 'd_' in var.name]
-	g_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='g_weights')
+    t_vars = tf.trainable_variables()
+    f_vars = [var for var in t_vars if 'ModelC' in var.name]
+    d_vars = [var for var in t_vars if 'd_' in var.name]
+    g_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='g_weights')
 
 	# define optimizers for discriminator and generator
-	update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
         d_opt = tf.train.AdamOptimizer().minimize(d_loss, var_list=d_vars)
         g_opt = tf.train.AdamOptimizer(learning_rate=0.001).minimize(g_loss, var_list=g_vars)
@@ -187,3 +227,4 @@ def advTrainer(cfg, tub_names, model_in_path, model_out_path, model_type):
 	print('finished training, saving weights')
 	g_saver.save(sess, "weights/generator/gen.ckpt")
 	d_saver.save(sess, "weights/discriminator/disc.ckpt")
+    '''

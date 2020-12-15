@@ -73,102 +73,6 @@ def make_next_key(sample, index_offset):
     return tub_path + str(index)
 
 
-def collate_records(records, gen_records, opts):
-    '''
-    open all the .json records from records list passed in,
-    read their contents,
-    add them to a list of gen_records, passed in.
-    use the opts dict to specify config choices
-    '''
-
-    new_records = {}
-    
-    for record_path in records:
-
-        basepath = os.path.dirname(record_path)        
-        index = get_record_index(record_path)
-        sample = { 'tub_path' : basepath, "index" : index }
-             
-        key = make_key(sample)
-
-        if key in gen_records:
-            continue
-
-        try:
-            with open(record_path, 'r') as fp:
-                json_data = json.load(fp)
-        except:
-            continue
-
-        image_filename = json_data["cam/image_array"]
-        image_path = os.path.join(basepath, image_filename)
-
-        sample['record_path'] = record_path
-        sample["image_path"] = image_path
-        sample["json_data"] = json_data        
-
-        angle = float(json_data['user/angle'])
-        throttle = float(json_data["user/throttle"])
-
-        if opts['categorical']:
-            angle = dk.utils.linear_bin(angle)
-            throttle = dk.utils.linear_bin(throttle, N=20, offset=0, R=opts['cfg'].MODEL_CATEGORICAL_MAX_THROTTLE_RANGE)
-
-        sample['angle'] = angle
-        sample['throttle'] = throttle
-
-        try:
-            accl_x = float(json_data['imu/acl_x'])
-            accl_y = float(json_data['imu/acl_y'])
-            accl_z = float(json_data['imu/acl_z'])
-
-            gyro_x = float(json_data['imu/gyr_x'])
-            gyro_y = float(json_data['imu/gyr_y'])
-            gyro_z = float(json_data['imu/gyr_z'])
-
-            sample['imu_array'] = np.array([accl_x, accl_y, accl_z, gyro_x, gyro_y, gyro_z])
-        except:
-            pass
-
-        try:
-            behavior_arr = np.array(json_data['behavior/one_hot_state_array'])
-            sample["behavior_arr"] = behavior_arr
-        except:
-            pass
-
-        try:
-            location_arr = np.array(json_data['location/one_hot_state_array'])
-            sample["location"] = location_arr
-        except:
-            pass
-
-
-        sample['img_data'] = None
-
-        # Initialise 'train' to False
-        sample['train'] = False
-        
-        # We need to maintain the correct train - validate ratio across the dataset, even if continous training
-        # so don't add this sample to the main records list (gen_records) yet.
-        new_records[key] = sample
-        
-    # new_records now contains all our NEW samples
-    # - set a random selection to be the training samples based on the ratio in CFG file
-    shufKeys = list(new_records.keys())
-    random.shuffle(shufKeys)
-    trainCount = 0
-    #  Ratio of samples to use as training data, the remaining are used for evaluation
-    targetTrainCount = int(opts['cfg'].TRAIN_TEST_SPLIT * len(shufKeys))
-    for key in shufKeys:
-        new_records[key]['train'] = True
-        trainCount += 1
-        if trainCount >= targetTrainCount:
-            break
-    # Finally add all the new records to the existing list
-    gen_records.update(new_records)
-
-
-
 class MyCPCallback(keras.callbacks.ModelCheckpoint):
     '''
     custom callback to interact with best val loss during continuous training
@@ -271,7 +175,7 @@ def train(cfg, tub_names, model_name, transfer_model, model_type, continuous, au
     if cfg.SEND_WANDB:
         import wandb
         from wandb.keras import WandbCallback
-        wandb.init(project="donkeyadv")
+        wandb.init(project="donkeyDave2")
 
     if model_type is None:
         model_type = cfg.DEFAULT_MODEL_TYPE
@@ -917,37 +821,6 @@ def prune(model, validation_generator, val_steps, cfg):
     model.save(name)
 
     return model, n_channels_delete
-
-
-def extract_data_from_pickles(cfg, tubs):
-    """
-    Extracts record_{id}.json and image from a pickle with the same id if exists in the tub.
-    Then writes extracted json/jpg along side the source pickle that tub.
-    This assumes the format {id}.pickle in the tub directory.
-    :param cfg: config with data location configuration. Generally the global config object.
-    :param tubs: The list of tubs involved in training.
-    :return: implicit None.
-    """
-    t_paths = gather_tub_paths(cfg, tubs)
-    for tub_path in t_paths:
-        file_paths = glob.glob(join(tub_path, '*.pickle'))
-        print('found {} pickles writing json records and images in tub {}'.format(len(file_paths), tub_path))
-        for file_path in file_paths:
-            # print('loading data from {}'.format(file_paths))
-            with open(file_path, 'rb') as f:
-                p = zlib.decompress(f.read())
-            data = pickle.loads(p)
-           
-            base_path = dirname(file_path)
-            filename = splitext(basename(file_path))[0]
-            image_path = join(base_path, filename + '.jpg')
-            img = Image.fromarray(np.uint8(data['val']['cam/image_array']))
-            img.save(image_path)
-            
-            data['val']['cam/image_array'] = filename + '.jpg'
-
-            with open(join(base_path, 'record_{}.json'.format(filename)), 'w') as f:
-                json.dump(data['val'], f)
 
 
 def prune_model(model, apoz_df, n_channels_delete):
