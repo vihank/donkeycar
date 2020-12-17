@@ -17,14 +17,11 @@ import numpy as np
 
 import tensorflow as tf
 from tensorflow.python import keras
-from tensorflow.python.keras.layers import Input, Dense, InputLayer
+from tensorflow.python.keras.layers import Input, Dense, InputLayer, Convolution2D, MaxPooling2D, Reshape, BatchNormalization, \
+                                            Activation, Dropout, Flatten, Cropping2D, Lambda, LSTM, Conv3D, MaxPooling3D, Cropping3D, Conv2DTranspose
 from tensorflow.python.keras.models import Model, Sequential
-from tensorflow.python.keras.layers import Convolution2D, MaxPooling2D, Reshape, BatchNormalization
-from tensorflow.python.keras.layers import Activation, Dropout, Flatten, Cropping2D, Lambda
 from tensorflow.python.keras.layers.merge import concatenate
-from tensorflow.python.keras.layers import LSTM
 from tensorflow.python.keras.layers.wrappers import TimeDistributed as TD
-from tensorflow.python.keras.layers import Conv3D, MaxPooling3D, Cropping3D, Conv2DTranspose
 
 import donkeycar as dk
 
@@ -69,43 +66,8 @@ class KerasPilot(object):
         else:
             raise Exception("unknown optimizer type: %s" % optimizer_type)
     
-    def train(self, train_gen, val_gen, 
-              saved_model_path, epochs=100, steps=100, train_split=0.8,
-              verbose=1, min_delta=.0005, patience=5, use_early_stop=True):
-        
-        """
-        train_gen: generator that yields an array of images an array of 
-        
-        """
-
-        #checkpoint to save model after each epoch
-        save_best = keras.callbacks.ModelCheckpoint(saved_model_path, 
-                                                    monitor='val_loss', 
-                                                    verbose=verbose, 
-                                                    save_best_only=True, 
-                                                    mode='min')
-        
-        #stop training if the validation error stops improving.
-        early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', 
-                                                   min_delta=min_delta, 
-                                                   patience=patience, 
-                                                   verbose=verbose, 
-                                                   mode='auto')
-        
-        callbacks_list = [save_best]
-
-        if use_early_stop:
-            callbacks_list.append(early_stop)
-        
-        hist = self.model.fit_generator(
-                        train_gen, 
-                        steps_per_epoch=steps, 
-                        epochs=epochs, 
-                        verbose=1, 
-                        validation_data=val_gen,
-                        callbacks=callbacks_list, 
-                        validation_steps=steps*(1.0 - train_split))
-        return hist
+    def predict_on_batch(self, x_batch):
+        return self.model.predict_on_batch(x_batch)
 
 
 class KerasCategorical(KerasPilot):
@@ -276,8 +238,7 @@ class KerasDave2(KerasPilot):
         self.compile()
 
     def compile(self):
-        self.model.compile(optimizer=self.optimizer,
-                loss='mse')
+        self.model.compile(optimizer=self.optimizer, loss='mse')
 
     def run(self, img_arr):
         img_arr = img_arr.reshape((1,) + img_arr.shape)
@@ -285,6 +246,9 @@ class KerasDave2(KerasPilot):
         steering = outputs[0]
         throttle = outputs[1]
         return steering[0][0], throttle[0][0]
+    
+    def __call__(self, input):
+        return self.model(input)
 
 def adjust_input_shape(input_shape, roi_crop):
     height = input_shape[0]

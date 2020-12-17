@@ -6,6 +6,7 @@ Functions that don't fit anywhere else.
 '''
 from io import BytesIO
 import os
+from os.path import basename, join, splitext, dirname
 import glob
 import socket
 import zipfile
@@ -488,10 +489,6 @@ def collate_records(records, gen_records, opts):
         angle = float(json_data['user/angle'])
         throttle = float(json_data["user/throttle"])
 
-        if opts['categorical']:
-            angle = dk.utils.linear_bin(angle)
-            throttle = dk.utils.linear_bin(throttle, N=20, offset=0, R=opts['cfg'].MODEL_CATEGORICAL_MAX_THROTTLE_RANGE)
-
         sample['angle'] = angle
         sample['throttle'] = throttle
 
@@ -544,6 +541,17 @@ def collate_records(records, gen_records, opts):
             break
     # Finally add all the new records to the existing list
     gen_records.update(new_records)
+
+def make_key(sample):
+    tub_path = sample['tub_path']
+    index = sample['index']
+    return tub_path + str(index)
+
+
+def make_next_key(sample, index_offset):
+    tub_path = sample['tub_path']
+    index = sample['index'] + index_offset
+    return tub_path + str(index)
 
 """
 Training helpers

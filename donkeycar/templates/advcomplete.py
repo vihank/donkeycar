@@ -3,8 +3,8 @@
 Scripts to drive a donkey 2 car
 
 Usage:
-    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|dave2)] [--meta=<key:value> ...] [--myconfig=<filename>] [--adv=<path>]
-    advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|dav2)] [--continuous] [--aug] [--myconfig=<filename>] [--adv] [--model_out=<model_out>]
+    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|dave2)] [--meta=<key:value> ...] [--myconfig=<filename>] [--advpath=<path>]
+    advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|dave2)] [--continuous] [--aug] [--myconfig=<filename>] [--adv] [--modelo=<model>]
 
 
 Options:
@@ -12,10 +12,8 @@ Options:
     --js                    Use physical joystick.
     -f --file=<file>        A text file containing paths to tub files, one per line. Option may be used more than once.
     --meta=<key:value>      Key/Value strings describing describing a piece of meta data about this drive. Option may be used more than once.
-    --myconfig=filename     Specify myconfig file to use. 
-                            [default: myconfig.py]
+    --myconfig=filename     Specify myconfig file to use. [default: myconfig.py]
 """
-from donkeycar.donkeycar.utils import get_model_by_type, load_model
 import os
 import time
 
@@ -31,7 +29,7 @@ from donkeycar.parts.throttle_filter import ThrottleFilter
 from donkeycar.parts.file_watcher import FileWatcher
 from donkeycar.utils import *
 
-def drive(cfg, model_path=None, model_type=None, meta=[], adv):
+def drive(cfg, adv, model_path=None, model_type=None, meta=[]):
     '''
     Construct a working robotic vehicle from many parts.
     Each part runs as a job in the Vehicle loop, calling either
@@ -268,10 +266,10 @@ if __name__ == '__main__':
     if args['drive']:
         model_type = args['--type']
 
-        drive(cfg, model_path=args['--model'],
+        drive(cfg, adv=args['--adv'],
+              model_path=args['--model'],
               model_type=model_type,
-              meta=args['--meta'],
-              adv=args['--adv'])
+              meta=args['--meta'])
 
     if args['train']:
         from train import multi_train, preprocessFileList
@@ -290,7 +288,7 @@ if __name__ == '__main__':
             tub_paths = [os.path.expanduser(n) for n in tub.split(',')]
             dirs.extend( tub_paths )
 
-        if model_type is None:
+        if model_type is None and not adv:
             model_type = cfg.DEFAULT_MODEL_TYPE
             print("using default model type of", model_type)
 
