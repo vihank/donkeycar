@@ -56,7 +56,7 @@ def advTrainer(cfg, tub_names, model_in_path, model_out_path, model_type):
     optim = opt(cfg.STACKED_OPTIMIZER, cfg.STACKED_LR)
     kl_ang_out, _ = kl(advGen(inputs))
     stacked = Model(inputs=inputs, outputs=[advGen(inputs), disc(advGen(inputs)), kl_ang_out])
-    stacked.compile(loss=[genLoss, keras.losses.binary_crossentropy, keras.losses.binary_crossentropy], optimizer=optim)
+    stacked.compile(loss=[genLoss, keras.losses.sparse_categorical_crossentropy, customLoss], optimizer=optim)
 
     if cfg.PRINT_MODEL_SUMMARY:
         print(advGen.model.summary())
@@ -131,7 +131,7 @@ def advTrainer(cfg, tub_names, model_in_path, model_out_path, model_type):
         (d_loss, d_acc) = train_D_on_batch((x_batch, Gx_batch, y_batch))
         (g_loss, hinge_loss, gan_loss, adv_loss) = train_stacked_on_batch((x_batch, Gx_batch, y_batch))
 
-        target_acc = kl.test_on_batch(Gx_batch, to_categorical(y_batch))[1]
+        target_acc = kl.test_on_batch(Gx_batch, to_categorical(y_batch))[0]
         target_predictions = kl.predict_on_batch(Gx_batch) #(96,2)
 
         misclassified = np.where(y_batch.reshape((len(x_train) % batch_size, )) != np.argmax(target_predictions, axis=1))[0]
@@ -185,6 +185,10 @@ def opt(cfg_opt, cfg_lr):
 
 def genLoss(y_true, y_pred):
     return K.mean(K.maximum(K.sqrt(K.sum(K.square(y_pred - y_true), axis=-1)) - 0.3, 0), axis=-1)
+    #||G(x) - x||_2 - c, where c is user-defined. Here it is set to 0.3
+
+def customLoss(y_true, y_pred):
+    return K.mean(K.maximum(K.sqrt(K.sum(K.square(y_pred[0] - y_true), axis=-1)) - 0.3, 0), axis =-1)
 
 def custom_acc(y_true, y_pred):
     return binary_accuracy(K.round(y_true), K.round(y_pred))
@@ -194,3 +198,57 @@ def get_batches(start, end, x_train, y_train_thrott, advGen):
         Gx_batch = np.array(advGen.predict_on_batch(x_batch))
         y_batch = np.array(y_train_thrott[start:end])
         return x_batch, Gx_batch, y_batch
+
+'''
+just in case, basis for a data generator
+class DataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, cfg, gen_records, batch_size=32, ):
+        self.cfg = cfg
+        self.batch_size = batch_size
+        self.keys = list(gen_records.keys())
+        random.shuffle(self.keys)
+        self.data = gen_records
+        self.on_epoch_end()
+        #shuffle and get ready for training
+        
+        
+        x_train = []
+        y_train_thrott = []
+        batch_data = []
+        for key in keys:
+            _record = gen_records[key]
+            batch_data.append(_record)
+            for record in batch_data:
+                if record['img_data'] is None:
+                    filename = record['image_path']
+                    img_arr = load_scaled_image_arr(filename, cfg)
+
+                    if img_arr is None:
+                        break
+
+                else:
+                    img_arr = record['img_data']
+
+                x_train.append(img_arr)
+                y_train_thrott.append(record['angle'])
+
+    def __len__(self):
+        return len(self.indices) // self.batch_size
+
+    def __getitem__(self, index):
+        index = self.index[index * self.batch_size:(index + 1) * self.batch_size]
+        batch = [self.indices[k] for k in index]
+        
+        X, y = self.__get_data(batch)
+        return X, y
+
+    def __get_data(self, batch):
+        X = []
+        y = []
+        
+        for i, id in enumerate(batch):
+            X[i,] = # logic
+            y[i] = # labels
+
+        return X, y
+'''
