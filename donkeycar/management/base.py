@@ -369,7 +369,7 @@ class hotLap(BaseCommand):
     '''
     find best lap out of tub and create histogram of data 
     '''
-    #TODO look through saved data to find one lap where env/cte variance is minimized
+    #looks through saved data to find one lap where env/cte variance is minimized
     #within 5 units of 50 for env/pos_x and within 5 of 50 for env/pos_z is one lap
 
     def parse_args(self, args):

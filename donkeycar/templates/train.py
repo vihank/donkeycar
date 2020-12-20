@@ -23,7 +23,6 @@ import random
 import json
 import time
 import zlib
-from os.path import basename, join, splitext, dirname
 import pickle
 import datetime
 
@@ -59,19 +58,6 @@ except:
 '''
 Tub management
 '''
-
-
-def make_key(sample):
-    tub_path = sample['tub_path']
-    index = sample['index']
-    return tub_path + str(index)
-
-
-def make_next_key(sample, index_offset):
-    tub_path = sample['tub_path']
-    index = sample['index'] + index_offset
-    return tub_path + str(index)
-
 
 class MyCPCallback(keras.callbacks.ModelCheckpoint):
     '''
@@ -272,7 +258,7 @@ def train(cfg, tub_names, model_name, transfer_model, model_type, continuous, au
             batch_data = []
 
             keys = list(data.keys())
-
+            
             random.shuffle(keys)
 
             kl = opts['keras_pilot']
@@ -789,18 +775,13 @@ def sequence_train(cfg, tub_names, model_name, transfer_model, model_type, conti
         use_early_stop = cfg.USE_EARLY_STOP)
     '''
 
-
-def adv_train(cfg, tub, model, model_out, model_type):
-    from donkeycar.parts.advgan import advTrain
-
-    advTrain(cfg, tub, model, model_out, model_type)
-
-def multi_train(cfg, tub, model, transfer, model_type, continuous, aug, adv, model_out):
+def multi_train(cfg, tub, model, transfer, model_type, continuous, aug, model_out=None):
     '''
     choose the right regime for the given model type
     '''
-    if adv:
-        adv_train(cfg, tub, model, model_out, model_type)
+    if model_out is not None:
+        from donkeycar.parts.advgan import advTrain
+        advTrain(cfg, tub, model, model_out, model_type)
     elif model_type in ("rnn",'3d','look_ahead'):
         sequence_train(cfg, tub, model, transfer, model_type, continuous, aug)
     else:
@@ -854,7 +835,7 @@ def get_total_channels(model):
 
 
 def get_model_apoz(model, generator):
-    from kerassurgeon.identify import get_apoz
+    from keras.surgeon.identify import get_apoz
     import pandas as pd
 
     # Get APoZ

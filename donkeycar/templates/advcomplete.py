@@ -29,7 +29,7 @@ from donkeycar.parts.throttle_filter import ThrottleFilter
 from donkeycar.parts.file_watcher import FileWatcher
 from donkeycar.utils import *
 
-def drive(cfg, adv, model_path=None, model_type=None, meta=[]):
+def drive(cfg, adv_path=None, model_path=None, model_type=None, meta=[]):
     '''
     Construct a working robotic vehicle from many parts.
     Each part runs as a job in the Vehicle loop, calling either
@@ -140,20 +140,44 @@ def drive(cfg, adv, model_path=None, model_type=None, meta=[]):
         def run(self, img_arr):
             return normalize_and_crop(img_arr, self.cfg)
 
-    inf_input = 'cam/normalized/cropped'
+    if adv is not None:
+        inf_input = 'img/attack'
+    else:
+        inf_input = 'cam/normalized/cropped'
+
     V.add(ImgPreProcess(cfg),
         inputs=['cam/image_array'],
         outputs=[inf_input],
         run_condition='run_pilot')
 
-   
-    if adv is not None:
-        from donkeycar.parts.advgan import advDrive
+    #add an adversarial example generator that will run every once in a while (dependent on cfg settings)
+    if adv_path is not None:
 
-        V.add(advDrive(cfg, adv), inputs=[inf_input], outputs=[inf_input])
+        advGen = get_adv_model_by_type(cfg, model_type)
+
+        if '.h5' in adv_path or '.uff' in adv_path or 'tflite' in adv_path or '.pkl' in adv_path:
+            #when we have a .h5 extension
+            #load everything from the model file
+            load_model(advGen, adv_path)
+
+        else:
+            print("ERR>> Unknown extension type on model file!!")
+            return
+        '''
+        class AttackCondition:
+            def run(self, frame):
+                if frame % cfg.ADV_ATTACK == 0:
+                    return True
+                else:
+                    return False
+
+        V.add(AttackCondition(), inputs=["tub/num_records"], outputs=['adv_atack'])
+        '''
+
+        V.add(advGen, inputs=[inf_input], outputs=[inf_input]) #, run_condition='adv_attack')
+
 
     inputs=[inf_input]
-
 
     if model_path:
         #When we have a model, first create an appropriate Keras part
@@ -266,7 +290,7 @@ if __name__ == '__main__':
     if args['drive']:
         model_type = args['--type']
 
-        drive(cfg, adv=args['--adv'],
+        drive(cfg, gen_path=args['--advpath'],
               model_path=args['--model'],
               model_type=model_type,
               meta=args['--meta'])
@@ -282,8 +306,11 @@ if __name__ == '__main__':
         aug = args['--aug']
         dirs = preprocessFileList( args['--file'] )
         adv = args['--adv']
-        model_out = args['--model_out']
+        model_out = None
 
+        if adv:
+            model_out = args['--modelo']
+        
         if tub is not None:
             tub_paths = [os.path.expanduser(n) for n in tub.split(',')]
             dirs.extend( tub_paths )
@@ -292,4 +319,4 @@ if __name__ == '__main__':
             model_type = cfg.DEFAULT_MODEL_TYPE
             print("using default model type of", model_type)
 
-        multi_train(cfg, dirs, model, transfer, model_type, continuous, aug, adv, model_out)
+        multi_train(cfg, dirs, model, transfer, model_type, continuous, aug, model_out)

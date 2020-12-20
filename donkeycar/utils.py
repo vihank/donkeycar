@@ -635,6 +635,23 @@ def get_model_by_type(model_type, cfg):
 
     return kl
 
+def get_adv_model_by_type(cfg, model_type=None):
+    '''
+    given the string model_type and the configuration settings in cfg
+    create a Keras model and return it.
+    '''
+    if model_type is None:
+        model_type = cfg.DEFAULT_ADV_MODEL_TYPE
+    print("\"get_adv_model_by_type\" model Type is: {}".format(model_type))
+    input_shape = (cfg.IMAGE_H, cfg.IMAGE_W, cfg.IMAGE_DEPTH)
+    
+    if model_type == "basic":
+        from donkeycar.parts.advModels import Basic
+        advGen = Basic(input_shape=input_shape)
+    else:
+        raise Exception("unknown model type: %s" % model_type)
+    
+    return advGen
 
 def load_model(kl, model_path):
         start = time.time()

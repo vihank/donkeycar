@@ -4,8 +4,10 @@ Created on Mon Dec 14 2020
 
 @author: vkarnala
 '''
+
+
+
 import tensorflow as tf
-from donkeycar.parts.adv_gan.util import *
 import tensorflow.keras as keras
 from tensorflow.keras import layers
 from tensorflow.python.keras.models import Model
@@ -67,9 +69,6 @@ class Basic(KerasGAN):
 
     def __call__(self, input):
         return self.model(input)
-
-    def predict_on_batch(self, x_batch):
-        return self.model.predict_on_batch(x_batch)
 
 class G2(KerasGAN):
     def __init__(self, num_outputs=1, input_shape=(66, 200, 3), *args, **kwargs):
