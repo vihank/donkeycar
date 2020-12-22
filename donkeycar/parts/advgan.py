@@ -8,7 +8,7 @@ Created on Mon Dec 14 2020
 
 import random
 import numpy as np
-from donkeycar.parts.advModels import build_disc
+from donkeycar.parts.advmodels import build_disc
 from donkeycar.utils import get_model_by_type, load_model, extract_data_from_pickles, gather_records, \
                             collate_records, load_scaled_image_arr, get_adv_model_by_type
 import tensorflow.keras as keras
@@ -58,7 +58,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     kl_ang_out, _ = kl(advGen(inputs))
     stacked = Model(inputs=inputs, outputs=[advGen(inputs), disc(advGen(inputs)), kl_ang_out])
     #losses are compeletely wrong, need to find correct functions
-    stacked.compile(loss=[genLoss, keras.losses.sparse_categorical_crossentropy, discLoss], optimizer=optim)
+    stacked.compile(loss=[genLoss, keras.losses.binary_crossentropy, discLoss], optimizer=optim)
 
     if cfg.PRINT_MODEL_SUMMARY:
         print(advGen.model.summary())
@@ -86,28 +86,38 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     x_train = []
     y_train_thrott = []
     batch_data = []
+    batch_size = cfg.ADV_BATCH_SIZE
     for key in keys:
+        if not key in gen_records:
+            continue
+
         _record = gen_records[key]
+
         batch_data.append(_record)
-        for record in batch_data:
-            if record['img_data'] is None:
-                filename = record['image_path']
-                img_arr = load_scaled_image_arr(filename, cfg)
 
-                if img_arr is None:
-                    break
+        if len(batch_data) == batch_size:
+            for record in batch_data:
+                if record['img_data'] is None:
+                    filename = record['image_path']
+                    img_arr = load_scaled_image_arr(filename, cfg)
 
-            else:
-                img_arr = record['img_data']
-                
-            x_train.append(img_arr)
-            y_train_thrott.append(record['angle'])
-        batch_data = []
-    
+                    if img_arr is None:
+                        break
+                    
+                    if cfg.CACHE_IMAGES:
+                        record['img_data'] = img_arr
+
+                else:
+                    img_arr = record['img_data']
+                    
+                x_train.append(img_arr)
+                y_train_thrott.append(record['angle'])
+        
+            batch_data = []
+
     total_records = len(gen_records)
     print('total records: %d' %(total_records))
 
-    batch_size = cfg.ADV_BATCH_SIZE
     num_batches = len(x_train)//batch_size
     if len(x_train) % batch_size != 0:
         num_batches += 1
@@ -198,8 +208,7 @@ def genLoss(y_true, y_pred):
     #||G(x) - x||_2 - c, where c is user-defined. Here it is set to 0.3
 
 def discLoss(y_true, y_pred):
-    #definitely the wrong type of loss function for the discriminator model
-    return K.mean(K.maximum(K.sqrt(K.sum(K.square(y_pred[0] - y_true), axis=-1)) - 0.3, 0), axis =-1)
+    return K.max(y_pred, 0) - y_pred * y_true + K.log(1 + K.exp(-abs(y_pred)))
 
 def custom_acc(y_true, y_pred):
     return binary_accuracy(K.round(y_true), K.round(y_pred))

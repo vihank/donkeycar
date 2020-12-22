@@ -646,7 +646,7 @@ def get_adv_model_by_type(cfg, model_type=None):
     input_shape = (cfg.IMAGE_H, cfg.IMAGE_W, cfg.IMAGE_DEPTH)
     
     if model_type == "basic":
-        from donkeycar.parts.advModels import Basic
+        from donkeycar.parts.advmodels import Basic
         advGen = Basic(input_shape=input_shape)
     else:
         raise Exception("unknown model type: %s" % model_type)
