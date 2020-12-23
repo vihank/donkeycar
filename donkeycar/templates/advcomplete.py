@@ -140,7 +140,7 @@ def drive(cfg, adv_path=None, model_path=None, model_type=None, meta=[]):
         def run(self, img_arr):
             return normalize_and_crop(img_arr, self.cfg)
 
-    if adv is not None:
+    if adv_path is not None:
         inf_input = 'img/attack'
     else:
         inf_input = 'cam/normalized/cropped'
@@ -151,9 +151,10 @@ def drive(cfg, adv_path=None, model_path=None, model_type=None, meta=[]):
         run_condition='run_pilot')
 
     #add an adversarial example generator that will run every once in a while (dependent on cfg settings)
+    #TODO test following
     if adv_path is not None:
 
-        advGen = get_adv_model_by_type(cfg, model_type)
+        advGen = get_adv_model_by_type(cfg, cfg.ADV_DEFAULT_MODEL_TYPE)
 
         if '.h5' in adv_path or '.uff' in adv_path or 'tflite' in adv_path or '.pkl' in adv_path:
             #when we have a .h5 extension
@@ -267,7 +268,7 @@ def drive(cfg, adv_path=None, model_path=None, model_type=None, meta=[]):
         types.append('float')
         types.append('float')
 
-    if adv is not None:
+    if adv_path is not None:
         inputs.append(inf_input)
         types.append('image_array')
 
@@ -290,7 +291,7 @@ if __name__ == '__main__':
     if args['drive']:
         model_type = args['--type']
 
-        drive(cfg, gen_path=args['--advpath'],
+        drive(cfg, adv_path=args['--advpath'],
               model_path=args['--model'],
               model_type=model_type,
               meta=args['--meta'])

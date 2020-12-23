@@ -18,6 +18,9 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.layers import Input
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.utils import to_categorical
+import matplotlib.pyplot as plt
+import time
+import datetime
 
 
 def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
@@ -57,7 +60,6 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     optim = opt(cfg.STACKED_OPTIMIZER, cfg.STACKED_LR)
     kl_ang_out, _ = kl(advGen(inputs))
     stacked = Model(inputs=inputs, outputs=[advGen(inputs), disc(advGen(inputs)), kl_ang_out])
-    #losses are compeletely wrong, need to find correct functions
     stacked.compile(loss=[genLoss, keras.losses.binary_crossentropy, discLoss], optimizer=optim)
 
     if cfg.PRINT_MODEL_SUMMARY:
@@ -123,9 +125,27 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         num_batches += 1
     print('There are %d batches of data' % num_batches)
 
+    #set values needed for training
+    history = {}
+    train_thresh = cfg.ADV_THRESH
+    history['gen_loss'] = []
+    history['d_loss'] = []
+    history['t_acc'] = []
+    missclassified = []
+    Gx_batch = None
+    x_batch = None
+    advEarlyStop = cfg.ADV_EARLY_STOP
+    if advEarlyStop:
+        earlyStop = CustomEarlyStopping(min_delta=cfg.ADV_MIN_DELTA, patience=cfg.ADV_EARLY_PATIENCE)
+        earlyStop.on_train_begin()
+    start = time.time()
+
+    #Start training
     for epoch in range(cfg.ADV_EPOCH):
+        print('\n\n\n\n')
         print("Epoch " + str(epoch))
         batch_index = 0
+        missclassified = []
 
         for batch in range(num_batches - 1):
             start = batch_size*batch_index
@@ -138,28 +158,136 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         #collect batch of data left after previous batches
         start = batch_size*batch_index
         end = len(x_train)
-        last_batch = get_batches(start, end, x_train, y_train_thrott, advGen)
+        last_batch  = get_batches(start, end, x_train, y_train_thrott, advGen)
         x_batch, Gx_batch, y_batch = last_batch
 
         d_loss = train_D_on_batch((x_batch, Gx_batch, None), disc)
         (_, hinge_loss, gan_loss, adv_loss) = train_stacked_on_batch(last_batch, stacked, disc, kl)
         
         #calculate accuracy of the target on generated images
+        target_predictions = kl.model.predict_on_batch(Gx_batch)
+
         kl.compile()
-        correct_pred = 0
-        for ind in range(total_records % batch_size):
-            if kl.run(Gx_batch[ind])[0]-0.1 <= y_batch[ind] <= kl.run(Gx_batch[ind])[0]+0.1:
-                correct_pred += 1
-        target_acc = correct_pred//(total_records % batch_size)
+        for ind in range(len(Gx_batch)):
+            if y_batch[ind]-train_thresh <= target_predictions[0][ind] <= y_batch[ind]+train_thresh:
+                missclassified.append(ind)
 
-        print("Disciminator -- Loss:%f \nGenerator -- Loss:%f\nHinge Loss: %f\nTarget Loss: %f\tAccuracy:%.2f%%" %(d_loss, gan_loss, hinge_loss, adv_loss, target_acc*100.))
+        target_acc = (batch_size-len(missclassified))/batch_size
+        history['gen_loss'].append(gan_loss)
+        history['d_loss'].append(d_loss)
+        history['t_acc'].append(target_acc)
+        
 
-        #TODO some kind of system for an early stop
+        print("Disciminator -- Loss: %f \nGenerator -- Loss: %f\nHinge Loss: %f\nTarget Loss: %f\tAccuracy:%.2f%%" %(d_loss, gan_loss, hinge_loss, adv_loss, target_acc*100.))
+
+        if advEarlyStop:
+            stop = earlyStop.on_epoch_end(epoch, advGen, history)
+            
+            if stop:
+                earlyStop.on_train_end()
+                break
     
+    train_duration = time.time()-start
+    print('Training completed in %s.' % str(datetime.timedelta(seconds=round(train_duration))))
+    if cfg.ADV_SHOW_PLOT:
+        plt.figure(1)
+
+        # summarize history for loss
+        plt.plot(history['gen_loss'])
+        plt.plot(history['d_loss'])
+        plt.plot(history['t_acc'])
+        plt.title('GAN Model Training')
+        plt.ylabel('Loss')
+        plt.xlabel('Epoch')
+        plt.legend(['Generator Loss', 'Discriminator Loss', 'Target Accuracy'], loc='upper right')
+
+        plt.savefig(model_out_path + '_loss_acc_%f.png' % (history['gen_loss'][-1]))
+        plt.show()
+
+        show_generated_images(Gx_batch[missclassified], 'Missclassified Images', model_out_path)
+        show_generated_images(Gx_batch, 'Generated Images', model_out_path)
+        show_generated_images(x_batch, 'Original Images', model_out_path)
+
+        
+
     #save the model at the defined model_out path
     advGen.model.save(model_out_path)
     
+class CustomEarlyStopping():
+  """Stop training when a monitored quantity has stopped improving.
 
+  Arguments:
+      min_delta: Minimum change in the monitored quantity
+          to qualify as an improvement, i.e. an absolute
+          change of less than min_delta, will count as no
+          improvement.
+      patience: Number of epochs with no improvement
+          after which training will be stopped.
+      restore_best_weights: Whether to restore model weights from
+          the epoch with the best value of the monitored quantity.
+          If False, the model weights obtained at the last step of
+          training are used.
+  """
+
+  def __init__(self,
+               min_delta=0,
+               patience=0,
+               restore_best_weights=True):
+    
+    self.patience = patience
+    self.min_delta = abs(min_delta)
+    self.wait = 0
+    self.stopped_epoch = 0
+    self.restore_best_weights = restore_best_weights
+    self.best_weights = None
+    self.monitor_op = np.less
+
+
+  def on_train_begin(self):
+    # Allow instances to be re-used
+    self.wait = 0
+    self.stopped_epoch = 0
+    self.best = np.Inf
+
+  def on_epoch_end(self, epoch, gen, logs=None):
+    current = logs['gen_loss'][-1]
+    if current is None:
+        return False
+    if self.monitor_op(current - self.min_delta, self.best):
+        self.best = current
+        self.wait = 0
+        if self.restore_best_weights:
+            self.best_weights = gen.model.get_weights()
+        return False
+    else:
+        self.wait += 1
+        if self.wait >= self.patience:
+            self.stopped_epoch = epoch
+            if self.restore_best_weights:
+                gen.model.set_weights(self.best_weights)
+            return True
+
+  def on_train_end(self):
+    if self.stopped_epoch > 0:
+      print('Epoch %05d: early stopping' % (self.stopped_epoch + 1))
+
+
+def show_generated_images(batch, name, path):
+    plt.figure
+
+    rows, columns = 5, 5
+    _ , axs = plt.subplots(rows, columns)
+    plt.title(name)
+    cnt = 0
+    for i in range(rows):
+        for j in range(columns):
+            axs[i,j].imshow(batch[cnt], interpolation='none')
+            axs[i,j].axis('off')
+            cnt += 1
+
+    plt.savefig(path[:-3] + '_' + name + '.png')
+    plt.show()
+    
 
 def train_D_on_batch(batches, disc):
     x_batch, Gx_batch, _ = batches
