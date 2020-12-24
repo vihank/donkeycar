@@ -29,7 +29,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     train perturbation generator
     '''
     if model_type is None:
-        model_type = cfg.DEFAULT_ADV_MODEL_TYPE
+        model_type = cfg.ADV_DEFAULT_MODEL_TYPE
     
     cfg.model_type = model_type
 
@@ -57,7 +57,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     disc = Model(inputs, output)
     disc.compile(loss=keras.losses.binary_crossentropy, optimizer=optim)
 
-    optim = opt(cfg.STACKED_OPTIMIZER, cfg.STACKED_LR)
+    optim = opt(cfg.ADV_OPTIMIZER, cfg.ADV_LR)
     kl_ang_out, _ = kl(advGen(inputs))
     stacked = Model(inputs=inputs, outputs=[advGen(inputs), disc(advGen(inputs)), kl_ang_out])
     stacked.compile(loss=[genLoss, keras.losses.binary_crossentropy, discLoss], optimizer=optim)
@@ -85,43 +85,19 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     #shuffle and get ready for training
     keys = list(gen_records.keys())
     random.shuffle(keys)
-    x_train = []
-    y_train_thrott = []
     batch_data = []
     batch_size = cfg.ADV_BATCH_SIZE
     for key in keys:
         if not key in gen_records:
             continue
 
-        _record = gen_records[key]
-
-        batch_data.append(_record)
-
-        if len(batch_data) == batch_size:
-            for record in batch_data:
-                if record['img_data'] is None:
-                    filename = record['image_path']
-                    img_arr = load_scaled_image_arr(filename, cfg)
-
-                    if img_arr is None:
-                        break
-                    
-                    if cfg.CACHE_IMAGES:
-                        record['img_data'] = img_arr
-
-                else:
-                    img_arr = record['img_data']
-                    
-                x_train.append(img_arr)
-                y_train_thrott.append(record['angle'])
-        
-            batch_data = []
+        batch_data.append(gen_records[key])
 
     total_records = len(gen_records)
     print('total records: %d' %(total_records))
 
-    num_batches = len(x_train)//batch_size
-    if len(x_train) % batch_size != 0:
+    num_batches = len(batch_data)//batch_size
+    if len(batch_data) % batch_size != 0:
         num_batches += 1
     print('There are %d batches of data' % num_batches)
 
@@ -131,6 +107,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     history['gen_loss'] = []
     history['d_loss'] = []
     history['t_acc'] = []
+    history['t_loss'] = []
     missclassified = []
     Gx_batch = None
     x_batch = None
@@ -146,19 +123,21 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         print("Epoch " + str(epoch))
         batch_index = 0
         missclassified = []
+        Gx_batch = None
+        x_batch = None
 
         for batch in range(num_batches - 1):
             start = batch_size*batch_index
             end = batch_size*(batch_index+1)
-            batches = get_batches(start, end, x_train, y_train_thrott, advGen)
+            batches = get_batches(cfg, start, end, batch_data, advGen)
             train_D_on_batch(batches, disc)
             train_stacked_on_batch(batches, stacked, disc, kl)
             batch_index += 1
 
         #collect batch of data left after previous batches
         start = batch_size*batch_index
-        end = len(x_train)
-        last_batch  = get_batches(start, end, x_train, y_train_thrott, advGen)
+        end = len(batch_data)
+        last_batch  = get_batches(cfg, start, end, batch_data, advGen)
         x_batch, Gx_batch, y_batch = last_batch
 
         d_loss = train_D_on_batch((x_batch, Gx_batch, None), disc)
@@ -175,6 +154,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         target_acc = (batch_size-len(missclassified))/batch_size
         history['gen_loss'].append(gan_loss)
         history['d_loss'].append(d_loss)
+        history['t_loss'].append(adv_loss)
         history['t_acc'].append(target_acc)
         
 
@@ -195,11 +175,13 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         # summarize history for loss
         plt.plot(history['gen_loss'])
         plt.plot(history['d_loss'])
+        plt.plot(history['t_loss'])
         plt.plot(history['t_acc'])
+
         plt.title('GAN Model Training')
         plt.ylabel('Loss')
         plt.xlabel('Epoch')
-        plt.legend(['Generator Loss', 'Discriminator Loss', 'Target Accuracy'], loc='upper right')
+        plt.legend(['Generator Loss', 'Discriminator Loss', 'Target Loss', 'Target Accuracy'], loc='upper right')
 
         plt.savefig(model_out_path + '_loss_acc_%f.png' % (history['gen_loss'][-1]))
         plt.show()
@@ -264,6 +246,7 @@ class CustomEarlyStopping():
         if self.wait >= self.patience:
             self.stopped_epoch = epoch
             if self.restore_best_weights:
+                print('Restoring model weights from the end of the best epoch.')
                 gen.model.set_weights(self.best_weights)
             return True
 
@@ -336,13 +319,34 @@ def genLoss(y_true, y_pred):
     #||G(x) - x||_2 - c, where c is user-defined. Here it is set to 0.3
 
 def discLoss(y_true, y_pred):
+    #custom binary cross entropy
     return K.max(y_pred, 0) - y_pred * y_true + K.log(1 + K.exp(-abs(y_pred)))
 
 def custom_acc(y_true, y_pred):
     return binary_accuracy(K.round(y_true), K.round(y_pred))
 
-def get_batches(start, end, x_train, y_train_thrott, advGen):
-        x_batch = np.array(x_train[start:end])
-        Gx_batch = np.array(advGen.model.predict_on_batch(x_batch))
-        y_batch = np.array(y_train_thrott[start:end])
-        return x_batch, Gx_batch, y_batch
+def get_batches(cfg, start, end, batch_data, advGen):
+    x_train = []
+    y_batch = []
+    
+    for record in batch_data[start:end]:
+        if record['img_data'] is None:
+            filename = record['image_path']
+            img_arr = load_scaled_image_arr(filename, cfg)
+
+            if img_arr is None:
+                break
+            
+            if cfg.CACHE_IMAGES:
+                record['img_data'] = img_arr
+
+        else:
+            img_arr = record['img_data']
+            
+        x_train.append(img_arr)
+        y_batch.append(record['angle'])
+
+    x_batch = np.array(x_train)
+    Gx_batch = np.array(advGen.model.predict_on_batch(x_batch))
+    y_batch = np.array(y_batch)
+    return x_batch, Gx_batch, y_batch
