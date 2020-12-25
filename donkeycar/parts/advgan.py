@@ -5,7 +5,6 @@ Created on Mon Dec 14 2020
 @author: vkarnala
 '''
 
-
 import random
 import numpy as np
 from donkeycar.parts.advmodels import build_disc
@@ -19,9 +18,8 @@ from tensorflow.python.keras.layers import Input
 from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.utils import to_categorical
 import matplotlib.pyplot as plt
-import time
-import datetime
-
+from time import time
+from datetime import timedelta
 
 def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     '''
@@ -55,7 +53,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     inputs = Input(shape=input_shape)
     output = build_disc(advGen(inputs))
     disc = Model(inputs, output)
-    disc.compile(loss=keras.losses.binary_crossentropy, optimizer=optim)
+    disc.compile(loss=keras.losses.binary_crossentropy, optimizer=optim, metrics=[custom_acc])
 
     optim = opt(cfg.ADV_OPTIMIZER, cfg.ADV_LR)
     kl_ang_out, _ = kl(advGen(inputs))
@@ -94,33 +92,36 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         batch_data.append(gen_records[key])
 
     total_records = len(gen_records)
-    print('total records: %d' %(total_records))
+    print('total records: %d' %total_records)
 
-    num_batches = len(batch_data)//batch_size
-    if len(batch_data) % batch_size != 0:
+    num_batches = total_records//batch_size
+    if total_records % batch_size != 0:
         num_batches += 1
     print('There are %d batches of data' % num_batches)
+    print('Accuracy based on %d datapoints' % (total_records % batch_size))
 
     #set values needed for training
     history = {}
     train_thresh = cfg.ADV_THRESH
     history['gen_loss'] = []
     history['d_loss'] = []
+    history['d_acc'] = []
     history['t_acc'] = []
     history['t_loss'] = []
+    history['path'] = model_out_path
     missclassified = []
     Gx_batch = None
     x_batch = None
     advEarlyStop = cfg.ADV_EARLY_STOP
+    start_time = time()
     if advEarlyStop:
         earlyStop = CustomEarlyStopping(min_delta=cfg.ADV_MIN_DELTA, patience=cfg.ADV_EARLY_PATIENCE)
         earlyStop.on_train_begin()
-    start = time.time()
 
     #Start training
     for epoch in range(cfg.ADV_EPOCH):
         print('\n\n\n\n')
-        print("Epoch " + str(epoch))
+        print("Epoch " + str(epoch) + ':')
         batch_index = 0
         missclassified = []
         Gx_batch = None
@@ -140,7 +141,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         last_batch  = get_batches(cfg, start, end, batch_data, advGen)
         x_batch, Gx_batch, y_batch = last_batch
 
-        d_loss = train_D_on_batch((x_batch, Gx_batch, None), disc)
+        d_loss, d_acc = train_D_on_batch((x_batch, Gx_batch, None), disc)
         (_, hinge_loss, gan_loss, adv_loss) = train_stacked_on_batch(last_batch, stacked, disc, kl)
         
         #calculate accuracy of the target on generated images
@@ -148,17 +149,23 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
 
         kl.compile()
         for ind in range(len(Gx_batch)):
-            if y_batch[ind]-train_thresh <= target_predictions[0][ind] <= y_batch[ind]+train_thresh:
+            expected = y_batch[ind]
+            out = float(target_predictions[0][ind][0])
+            if expected-train_thresh <= out <= expected+train_thresh:
+                #correctly labeled the generated image
+                pass
+            else:
                 missclassified.append(ind)
 
-        target_acc = (batch_size-len(missclassified))/batch_size
+        target_acc = (len(x_batch)-len(missclassified))/len(x_batch)
         history['gen_loss'].append(gan_loss)
         history['d_loss'].append(d_loss)
+        history['d_acc'].append(d_acc)
         history['t_loss'].append(adv_loss)
         history['t_acc'].append(target_acc)
         
 
-        print("Disciminator -- Loss: %f \nGenerator -- Loss: %f\nHinge Loss: %f\nTarget Loss: %f\tAccuracy:%.2f%%" %(d_loss, gan_loss, hinge_loss, adv_loss, target_acc*100.))
+        print("Disciminator -- Loss: %f\tAccuracy:%.2f%%\nGenerator -- Loss: %f\nHinge Loss: %f\nTarget Loss: %f\tAccuracy:%.2f%%" %(d_loss, d_acc*100, gan_loss, hinge_loss, adv_loss, target_acc*100.))
 
         if advEarlyStop:
             stop = earlyStop.on_epoch_end(epoch, advGen, history)
@@ -167,33 +174,40 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
                 earlyStop.on_train_end()
                 break
     
-    train_duration = time.time()-start
-    print('Training completed in %s.' % str(datetime.timedelta(seconds=round(train_duration))))
+    #save the model at the defined model_out path
+    advGen.model.save(model_out_path)
+
+    duration_train = time() - start_time
+    print("Training completed in %s." % str(timedelta(seconds=round(duration_train))) )
+
     if cfg.ADV_SHOW_PLOT:
         plt.figure(1)
 
         # summarize history for loss
         plt.plot(history['gen_loss'])
         plt.plot(history['d_loss'])
+        plt.plot(history['d_acc'])
         plt.plot(history['t_loss'])
         plt.plot(history['t_acc'])
+        plt.plot
 
         plt.title('GAN Model Training')
         plt.ylabel('Loss')
         plt.xlabel('Epoch')
         plt.legend(['Generator Loss', 'Discriminator Loss', 'Target Loss', 'Target Accuracy'], loc='upper right')
 
-        plt.savefig(model_out_path + '_loss_acc_%f.png' % (history['gen_loss'][-1]))
-        plt.show()
+        if advEarlyStop:
+            plt.savefig(model_out_path + '_loss_acc_%f.png' % (earlyStop.best))
+        else:
+            plt.savefig(model_out_path + '_loss_acc_%f.png' % (history['gen_loss'][-1]))
+        #plt.show()
 
+        x_batch, Gx_batch, _ = get_batches(cfg, total_records - (total_records % batch_size), total_records, batch_data, advGen)
         show_generated_images(Gx_batch[missclassified], 'Missclassified Images', model_out_path)
         show_generated_images(Gx_batch, 'Generated Images', model_out_path)
         show_generated_images(x_batch, 'Original Images', model_out_path)
 
-        
-
-    #save the model at the defined model_out path
-    advGen.model.save(model_out_path)
+    
     
 class CustomEarlyStopping():
   """Stop training when a monitored quantity has stopped improving.
@@ -223,6 +237,7 @@ class CustomEarlyStopping():
     self.restore_best_weights = restore_best_weights
     self.best_weights = None
     self.monitor_op = np.less
+    self.best_epoch = 0
 
 
   def on_train_begin(self):
@@ -240,27 +255,40 @@ class CustomEarlyStopping():
         self.wait = 0
         if self.restore_best_weights:
             self.best_weights = gen.model.get_weights()
+            gen.model.save(logs['path'])
+            self.best_epoch = epoch
         return False
     else:
         self.wait += 1
         if self.wait >= self.patience:
             self.stopped_epoch = epoch
             if self.restore_best_weights:
-                print('Restoring model weights from the end of the best epoch.')
+                print('Restoring model weights from the end of the best epoch (%d).'% self.best_epoch)
                 gen.model.set_weights(self.best_weights)
             return True
 
   def on_train_end(self):
     if self.stopped_epoch > 0:
-      print('Epoch %05d: early stopping' % (self.stopped_epoch + 1))
+      print('Epoch %d: early stopping' % (self.stopped_epoch + 1))
 
 
 def show_generated_images(batch, name, path):
     plt.figure
 
-    rows, columns = 5, 5
+    rows, columns, count = 5, 5, 0
+    while (rows*columns) >= len(batch):
+        if count % 2 == 0:
+            columns -= 1
+        else:
+            rows -= 1
+        count += 1
+
+    if rows == 0 or columns == 0:
+        rows = 1
+        columns = 1
+    
     _ , axs = plt.subplots(rows, columns)
-    plt.title(name)
+    plt.suptitle(name)
     cnt = 0
     for i in range(rows):
         for j in range(columns):
@@ -269,7 +297,6 @@ def show_generated_images(batch, name, path):
             cnt += 1
 
     plt.savefig(path[:-3] + '_' + name + '.png')
-    plt.show()
     
 
 def train_D_on_batch(batches, disc):
@@ -282,8 +309,8 @@ def train_D_on_batch(batches, disc):
 
     #Update D params
     disc.trainable = True
-    d_loss_real = disc.train_on_batch(x_batch, np.random.uniform(0.9, 1.0, size=(len(x_batch), 1)) ) #real=1, positive label smoothing
-    d_loss_fake = disc.train_on_batch(Gx_batch, np.zeros((len(Gx_batch), 1)) ) #fake=0
+    d_loss_real = disc.train_on_batch(x_batch, np.random.uniform(0.9, 1.0, size=(len(x_batch), 1))) #real=1, positive label smoothing
+    d_loss_fake = disc.train_on_batch(Gx_batch, np.zeros((len(Gx_batch), 1))) #fake=0
     d_loss = 0.5*np.add(d_loss_real, d_loss_fake)
 
     return d_loss #(loss, accuracy) tuple
@@ -291,14 +318,21 @@ def train_D_on_batch(batches, disc):
 
 def train_stacked_on_batch(batches, stacked, disc, kl):
     x_batch, _, y_batch = batches
-    flipped_y_batch = 1.-y_batch
+    flipped_y_batch = []
+    for ind in range(len(y_batch)):
+        ang = y_batch[ind]
+        if -0.15 <= ang <= 0.15:
+            #random number centered at 0.0
+            flipped_y_batch.append(random.randint(-50, 50)/50)
+        else:
+            flipped_y_batch.append(-ang)
+
 
     #for each batch:
         #train fake images on discriminator: D(G(z)) = update G params per D's classification for fake images
 
     #Update only G params
     disc.trainable = False
-    kl.model.trainable = False
     stacked_loss = stacked.train_on_batch(x_batch, [x_batch, np.ones((len(x_batch), 1)), to_categorical(flipped_y_batch)] )
     #stacked_loss = self.stacked.train_on_batch(x_batch, [x_batch, np.ones((len(x_batch), 1)), to_categorical(y_batch)] )
     #input to full GAN is original image
@@ -325,7 +359,7 @@ def discLoss(y_true, y_pred):
 def custom_acc(y_true, y_pred):
     return binary_accuracy(K.round(y_true), K.round(y_pred))
 
-def get_batches(cfg, start, end, batch_data, advGen):
+def get_batches(cfg, start, end, batch_data, advGen=None):
     x_train = []
     y_batch = []
     
