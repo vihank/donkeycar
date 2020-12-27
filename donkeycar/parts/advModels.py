@@ -52,6 +52,9 @@ class KerasGAN(object):
             self.model.optimizer = keras.optimizers.RMSprop(lr=rate, decay=decay, epsilon=epsilon)
         else:
             raise Exception("unknown optimizer type: %s" % optimizer_type)
+
+    def __call__(self, input):
+        return self.model(input)
     
 
 class Basic(KerasGAN):
@@ -67,8 +70,7 @@ class Basic(KerasGAN):
         output = self.model.predict(img_arr)
         return output
 
-    def __call__(self, input):
-        return self.model(input)
+    
 
 class G2(KerasGAN):
     def __init__(self, num_outputs=1, input_shape=(66, 200, 3), *args, **kwargs):

@@ -598,11 +598,12 @@ def get_model_by_type(model_type, cfg):
 
     input_shape = (cfg.IMAGE_H, cfg.IMAGE_W, cfg.IMAGE_DEPTH)
     roi_crop = (cfg.ROI_CROP_TOP, cfg.ROI_CROP_BOTTOM)
+    num_outputs = cfg.MODEL_NUM_OUT
 
     if model_type == "tflite_linear":
         kl = TFLitePilot()
     elif model_type == "dave2":
-        kl = KerasDave2(num_outputs=2, input_shape=input_shape, roi_crop=(0, 0))
+        kl = KerasDave2(num_outputs=num_outputs, input_shape=input_shape, roi_crop=(0, 0))
     elif model_type == "localizer" or cfg.TRAIN_LOCALIZER:
         kl = KerasLocalizer(num_locations=cfg.NUM_LOCATIONS, input_shape=input_shape)
     elif model_type == "behavior" or cfg.TRAIN_BEHAVIORS:

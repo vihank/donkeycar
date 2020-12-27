@@ -16,7 +16,6 @@ from tensorflow.keras.metrics import binary_accuracy
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.layers import Input
 from tensorflow.python.keras.models import Model
-from tensorflow.python.keras.utils import to_categorical
 import matplotlib.pyplot as plt
 from time import time
 from datetime import timedelta
@@ -28,6 +27,8 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     '''
     if model_type is None:
         model_type = cfg.ADV_DEFAULT_MODEL_TYPE
+
+    cfg.MODEL_NUM_OUT = 1
     
     cfg.model_type = model_type
 
@@ -38,41 +39,39 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     opts = { 'cfg' : cfg}
     input_shape = (cfg.IMAGE_H, cfg.IMAGE_W, cfg.IMAGE_DEPTH)
     
+    # gather generator model
+    # train time for the generator model
+    inputs = Input(shape=input_shape)
+    advGen = get_adv_model_by_type(cfg, model_type)
+
+    #create disciminator model
+    output = build_disc(advGen(inputs))
+    disc = Model(inputs, output)
+    disc.compile(loss=keras.losses.binary_crossentropy, optimizer=opt(cfg.DISC_OPTIMIZER, cfg.DISC_LR), metrics=[custom_acc])
+
     # gather target model
     # run time for the target model
     kl = get_model_by_type('dave2', cfg)
-    
-    kl.model.trainable = False
+    target = Model(inputs=inputs, outputs=[kl(advGen(inputs))])
+    target.compile(loss=keras.losses.categorical_crossentropy, optimizer=keras.optimizers.Adam(), metrics=['accuracy'])
 
-    # gather generator model
-    # train time for the generator model
-    advGen = get_adv_model_by_type(cfg, model_type)
-    advGen.compile()
+    stacked = Model(inputs=inputs, outputs=[advGen(inputs), disc(advGen(inputs)), target(advGen(inputs))])
+    stacked.compile(loss=[genLoss, keras.losses.binary_crossentropy, keras.losses.binary_crossentropy], optimizer=opt(cfg.ADV_OPTIMIZER, cfg.ADV_LR))
 
-    optim = opt(cfg.DISC_OPTIMIZER, cfg.DISC_LR)
-    inputs = Input(shape=input_shape)
-    output = build_disc(advGen(inputs))
-    disc = Model(inputs, output)
-    disc.compile(loss=keras.losses.binary_crossentropy, optimizer=optim, metrics=[custom_acc])
-
-    optim = opt(cfg.ADV_OPTIMIZER, cfg.ADV_LR)
-    kl_ang_out, _ = kl(advGen(inputs))
-    stacked = Model(inputs=inputs, outputs=[advGen(inputs), disc(advGen(inputs)), kl_ang_out])
-    stacked.compile(loss=[genLoss, keras.losses.binary_crossentropy, discLoss], optimizer=optim)
-
-    if cfg.PRINT_MODEL_SUMMARY:
-        print(advGen.model.summary())
-        print(disc.summary())
-
-    opts['adv_gen'] = advGen
-    opts['model_type'] = model_type
-    
     if '.h5' in model_in_path:
         load_model(kl, model_in_path)
     else:
         print("ERR>> Unknown extension type on model file!!")
         return
 
+    if cfg.PRINT_MODEL_SUMMARY:
+        print(advGen.model.summary())
+        print(disc.summary())
+        print(stacked.summary())
+
+    opts['adv_gen'] = advGen
+    opts['model_type'] = model_type
+    
     # Gather data from disk
     extract_data_from_pickles(cfg, tub_names)
 
@@ -99,6 +98,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         num_batches += 1
     print('There are %d batches of data' % num_batches)
     print('Accuracy based on %d datapoints' % (total_records % batch_size))
+
 
     #set values needed for training
     history = {}
@@ -132,7 +132,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
             end = batch_size*(batch_index+1)
             batches = get_batches(cfg, start, end, batch_data, advGen)
             train_D_on_batch(batches, disc)
-            train_stacked_on_batch(batches, stacked, disc, kl)
+            train_stacked_on_batch(batches, stacked, disc)
             batch_index += 1
 
         #collect batch of data left after previous batches
@@ -142,19 +142,19 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         x_batch, Gx_batch, y_batch = last_batch
 
         d_loss, d_acc = train_D_on_batch((x_batch, Gx_batch, None), disc)
-        (_, hinge_loss, gan_loss, adv_loss) = train_stacked_on_batch(last_batch, stacked, disc, kl)
+        (_, hinge_loss, gan_loss, adv_loss) = train_stacked_on_batch(last_batch, stacked, disc)
         
         #calculate accuracy of the target on generated images
-        target_predictions = kl.model.predict_on_batch(Gx_batch)
+        target_predictions = target.predict_on_batch(Gx_batch)
 
-        kl.compile()
         for ind in range(len(Gx_batch)):
             expected = y_batch[ind]
-            out = float(target_predictions[0][ind][0])
+            out = float(target_predictions[ind])
             if expected-train_thresh <= out <= expected+train_thresh:
                 #correctly labeled the generated image
                 pass
             else:
+                #missclassified so we will add to the list
                 missclassified.append(ind)
 
         target_acc = (len(x_batch)-len(missclassified))/len(x_batch)
@@ -165,11 +165,21 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         history['t_acc'].append(target_acc)
         
 
-        print("Disciminator -- Loss: %f\tAccuracy:%.2f%%\nGenerator -- Loss: %f\nHinge Loss: %f\nTarget Loss: %f\tAccuracy:%.2f%%" %(d_loss, d_acc*100, gan_loss, hinge_loss, adv_loss, target_acc*100.))
+        print("Disciminator -- Loss: %f\tAccuracy:%.2f%%\nGenerator -- Loss: %f\nHinge Loss: %f\nTarget Loss: %f\tAccuracy:%.2f%%" %(
+            d_loss,
+            d_acc*100,
+            gan_loss, 
+            hinge_loss, 
+            adv_loss, 
+            target_acc*100.))
+
+        
+        if epoch % 5 == 0:
+            show_generated_images(Gx_batch[missclassified], 'missImgEpoch' + str(epoch), model_out_path)
 
         if advEarlyStop:
             stop = earlyStop.on_epoch_end(epoch, advGen, history)
-            
+    
             if stop:
                 earlyStop.on_train_end()
                 break
@@ -203,9 +213,9 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         #plt.show()
 
         x_batch, Gx_batch, _ = get_batches(cfg, total_records - (total_records % batch_size), total_records, batch_data, advGen)
-        show_generated_images(Gx_batch[missclassified], 'Missclassified Images', model_out_path)
-        show_generated_images(Gx_batch, 'Generated Images', model_out_path)
-        show_generated_images(x_batch, 'Original Images', model_out_path)
+        show_generated_images(Gx_batch[missclassified], 'Missclassified Images' + str(history['gen_loss'][-1]), model_out_path)
+        show_generated_images(Gx_batch, 'Generated Images' + str(history['gen_loss'][-1]), model_out_path)
+        show_generated_images(x_batch, 'Original Images' + str(history['gen_loss'][-1]), model_out_path)
 
     
     
@@ -276,7 +286,7 @@ def show_generated_images(batch, name, path):
     plt.figure
 
     rows, columns, count = 5, 5, 0
-    while (rows*columns) >= len(batch):
+    while (rows*columns) >= (len(batch) + 1):
         if count % 2 == 0:
             columns -= 1
         else:
@@ -316,7 +326,7 @@ def train_D_on_batch(batches, disc):
     return d_loss #(loss, accuracy) tuple
 
 
-def train_stacked_on_batch(batches, stacked, disc, kl):
+def train_stacked_on_batch(batches, stacked, disc):
     x_batch, _, y_batch = batches
     flipped_y_batch = []
     for ind in range(len(y_batch)):
@@ -326,15 +336,14 @@ def train_stacked_on_batch(batches, stacked, disc, kl):
             flipped_y_batch.append(random.randint(-50, 50)/50)
         else:
             flipped_y_batch.append(-ang)
-
+    flipped_y_batch = np.array(flipped_y_batch)
 
     #for each batch:
         #train fake images on discriminator: D(G(z)) = update G params per D's classification for fake images
 
     #Update only G params
     disc.trainable = False
-    stacked_loss = stacked.train_on_batch(x_batch, [x_batch, np.ones((len(x_batch), 1)), to_categorical(flipped_y_batch)] )
-    #stacked_loss = self.stacked.train_on_batch(x_batch, [x_batch, np.ones((len(x_batch), 1)), to_categorical(y_batch)] )
+    stacked_loss = stacked.train_on_batch(x_batch, [x_batch, np.ones((len(x_batch), 1)), flipped_y_batch] )
     #input to full GAN is original image
     #output 1 label for generated image is original image
     #output 2 label for discriminator classification is real/fake; G wants D to mark these as real=1
@@ -352,9 +361,8 @@ def genLoss(y_true, y_pred):
     return K.mean(K.maximum(K.sqrt(K.sum(K.square(y_pred - y_true), axis=-1)) - 0.3, 0), axis=-1)
     #||G(x) - x||_2 - c, where c is user-defined. Here it is set to 0.3
 
-def discLoss(y_true, y_pred):
-    #custom binary cross entropy
-    return K.max(y_pred, 0) - y_pred * y_true + K.log(1 + K.exp(-abs(y_pred)))
+def pl_loss(y_true, y_pred):
+    return 0*y_true + 0*y_pred
 
 def custom_acc(y_true, y_pred):
     return binary_accuracy(K.round(y_true), K.round(y_pred))
@@ -381,6 +389,6 @@ def get_batches(cfg, start, end, batch_data, advGen=None):
         y_batch.append(record['angle'])
 
     x_batch = np.array(x_train)
-    Gx_batch = np.array(advGen.model.predict_on_batch(x_batch))
+    Gx_batch = np.array(advGen.model.predict_on_batch(x_batch)) 
     y_batch = np.array(y_batch)
     return x_batch, Gx_batch, y_batch

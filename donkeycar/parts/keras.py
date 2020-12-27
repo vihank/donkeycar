@@ -68,6 +68,9 @@ class KerasPilot(object):
     
     def predict_on_batch(self, x_batch):
         return self.model.predict_on_batch(x_batch)
+        
+    def __call__(self, input):
+        return self.model(input)
 
 
 class KerasCategorical(KerasPilot):
