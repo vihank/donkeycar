@@ -603,7 +603,7 @@ def get_model_by_type(model_type, cfg):
     if model_type == "tflite_linear":
         kl = TFLitePilot()
     elif model_type == "dave2":
-        kl = KerasDave2(num_outputs=num_outputs, input_shape=input_shape, roi_crop=(0, 0))
+        kl = KerasDave2(input_shape=input_shape, roi_crop=(0, 0))
     elif model_type == "localizer" or cfg.TRAIN_LOCALIZER:
         kl = KerasLocalizer(num_locations=cfg.NUM_LOCATIONS, input_shape=input_shape)
     elif model_type == "behavior" or cfg.TRAIN_BEHAVIORS:

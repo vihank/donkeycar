@@ -9,13 +9,14 @@ import random
 import numpy as np
 from donkeycar.parts.advmodels import build_disc
 from donkeycar.utils import get_model_by_type, load_model, extract_data_from_pickles, gather_records, \
-                            collate_records, load_scaled_image_arr, get_adv_model_by_type
+                            collate_records, load_scaled_image_arr, get_adv_model_by_type, linear_unbin
 import tensorflow.keras as keras
 from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras.metrics import binary_accuracy
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.layers import Input
 from tensorflow.python.keras.models import Model
+from tensorflow.python.keras.utils import to_categorical
 import matplotlib.pyplot as plt
 from time import time
 from datetime import timedelta
@@ -28,8 +29,6 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     if model_type is None:
         model_type = cfg.ADV_DEFAULT_MODEL_TYPE
 
-    cfg.MODEL_NUM_OUT = 1
-    
     cfg.model_type = model_type
 
     if (model_in_path and not '.h5' == model_in_path[-3:]) or (model_out_path and not '.h5' == model_out_path[-3:]):
@@ -91,8 +90,6 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         batch_data.append(gen_records[key])
 
     total_records = len(gen_records)
-    print('total records: %d' %total_records)
-
     num_batches = total_records//batch_size
     if total_records % batch_size != 0:
         num_batches += 1
@@ -102,7 +99,6 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
 
     #set values needed for training
     history = {}
-    train_thresh = cfg.ADV_THRESH
     history['gen_loss'] = []
     history['d_loss'] = []
     history['d_acc'] = []
@@ -113,6 +109,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
     Gx_batch = None
     x_batch = None
     advEarlyStop = cfg.ADV_EARLY_STOP
+    train_thresh = cfg.ADV_THRESH
     start_time = time()
     if advEarlyStop:
         earlyStop = CustomEarlyStopping(min_delta=cfg.ADV_MIN_DELTA, patience=cfg.ADV_EARLY_PATIENCE)
@@ -132,7 +129,7 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
             end = batch_size*(batch_index+1)
             batches = get_batches(cfg, start, end, batch_data, advGen)
             train_D_on_batch(batches, disc)
-            train_stacked_on_batch(batches, stacked, disc)
+            train_stacked_on_batch(batches, stacked, disc, target)
             batch_index += 1
 
         #collect batch of data left after previous batches
@@ -142,14 +139,15 @@ def advTrain(cfg, tub_names, model_in_path, model_out_path, model_type):
         x_batch, Gx_batch, y_batch = last_batch
 
         d_loss, d_acc = train_D_on_batch((x_batch, Gx_batch, None), disc)
-        (_, hinge_loss, gan_loss, adv_loss) = train_stacked_on_batch(last_batch, stacked, disc)
+        (_, hinge_loss, gan_loss, adv_loss) = train_stacked_on_batch(last_batch, stacked, disc, target)
         
         #calculate accuracy of the target on generated images
-        target_predictions = target.predict_on_batch(Gx_batch)
+        t_pred_binned = target.predict_on_batch(Gx_batch)
+        
 
         for ind in range(len(Gx_batch)):
             expected = y_batch[ind]
-            out = float(target_predictions[ind])
+            out = linear_unbin(t_pred_binned[ind])
             if expected-train_thresh <= out <= expected+train_thresh:
                 #correctly labeled the generated image
                 pass
@@ -326,7 +324,7 @@ def train_D_on_batch(batches, disc):
     return d_loss #(loss, accuracy) tuple
 
 
-def train_stacked_on_batch(batches, stacked, disc):
+def train_stacked_on_batch(batches, stacked, disc, target):
     x_batch, _, y_batch = batches
     flipped_y_batch = []
     for ind in range(len(y_batch)):
@@ -343,7 +341,8 @@ def train_stacked_on_batch(batches, stacked, disc):
 
     #Update only G params
     disc.trainable = False
-    stacked_loss = stacked.train_on_batch(x_batch, [x_batch, np.ones((len(x_batch), 1)), flipped_y_batch] )
+    target.trainable = False
+    stacked_loss = stacked.train_on_batch(x_batch, [x_batch, np.ones((len(x_batch), 1)), to_categorical(flipped_y_batch, 15)] )
     #input to full GAN is original image
     #output 1 label for generated image is original image
     #output 2 label for discriminator classification is real/fake; G wants D to mark these as real=1
@@ -352,17 +351,14 @@ def train_stacked_on_batch(batches, stacked, disc):
 
 def opt(cfg_opt, cfg_lr):
     if cfg_opt == 'adam':
-        opt = Adam(cfg_lr)
+        optim = Adam(cfg_lr)
     else:
-        opt = SGD(cfg_lr)
-    return opt
+        optim = SGD(cfg_lr)
+    return optim
 
 def genLoss(y_true, y_pred):
     return K.mean(K.maximum(K.sqrt(K.sum(K.square(y_pred - y_true), axis=-1)) - 0.3, 0), axis=-1)
     #||G(x) - x||_2 - c, where c is user-defined. Here it is set to 0.3
-
-def pl_loss(y_true, y_pred):
-    return 0*y_true + 0*y_pred
 
 def custom_acc(y_true, y_pred):
     return binary_accuracy(K.round(y_true), K.round(y_pred))
@@ -389,6 +385,6 @@ def get_batches(cfg, start, end, batch_data, advGen=None):
         y_batch.append(record['angle'])
 
     x_batch = np.array(x_train)
-    Gx_batch = np.array(advGen.model.predict_on_batch(x_batch)) 
+    Gx_batch = np.clip(np.array(advGen.model.predict_on_batch(x_batch)), 0, 255)
     y_batch = np.array(y_batch)
     return x_batch, Gx_batch, y_batch

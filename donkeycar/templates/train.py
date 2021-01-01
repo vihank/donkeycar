@@ -27,6 +27,7 @@ import pickle
 import datetime
 
 from tensorflow.python import keras
+from tensorflow.python.keras.utils import to_categorical
 from docopt import docopt
 import numpy as np
 from PIL import Image
@@ -35,7 +36,8 @@ import donkeycar as dk
 from donkeycar.parts.datastore import Tub
 from donkeycar.parts.keras import KerasLinear, KerasIMU,\
      KerasCategorical, KerasBehavioral, Keras3D_CNN,\
-     KerasRNN_LSTM, KerasLatent, KerasLocalizer
+     KerasRNN_LSTM, KerasLatent, KerasLocalizer, \
+     KerasDave2
 from donkeycar.parts.augment import augment_image
 from donkeycar.utils import *
 
@@ -197,7 +199,7 @@ def train(cfg, tub_names, model_name, transfer_model, model_type, continuous, au
 
     kl = get_model_by_type(train_type, cfg=cfg)
 
-    opts['categorical'] = type(kl) in [KerasCategorical, KerasBehavioral]
+    opts['categorical'] = type(kl) in [KerasCategorical, KerasBehavioral, KerasDave2]
 
     print('training with model type', type(kl))
 
@@ -277,6 +279,8 @@ def train(cfg, tub_names, model_name, transfer_model, model_type, continuous, au
             has_bvh = type(kl) is KerasBehavioral
             img_out = type(kl) is KerasLatent
             loc_out = type(kl) is KerasLocalizer
+            to_cate = type(kl) is KerasDave2
+            categorical = type(kl) is KerasCategorical
             
             if img_out:
                 import cv2
@@ -365,6 +369,10 @@ def train(cfg, tub_names, model_name, transfer_model, model_type, continuous, au
                         y = [ np.array(angles), np.array(throttles), np.array(out_loc)]
                     elif model_out_shape[1] == 2:
                         y = [np.array([out]).reshape(batch_size, 2) ]
+                    elif to_cate:
+                        y = [np.array(to_categorical(angles, 15))]
+                    elif categorical:
+                        y = [np.array(to_categorical(angles, 15)), np.array(to_categorical(throttles, 20))]
                     else:
                         y = [np.array(angles), np.array(throttles)]
 
@@ -805,7 +813,7 @@ def prune(model, validation_generator, val_steps, cfg):
 
 
 def prune_model(model, apoz_df, n_channels_delete):
-    from kerassurgeon import Surgeon
+    from keras.surgeon import Surgeon
     import pandas as pd
 
     # Identify 5% of channels with the highest APoZ in model
