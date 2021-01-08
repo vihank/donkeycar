@@ -371,9 +371,9 @@ def advLoss(y_true, y_pred):
     #L_F is loss function of the target model (MSE)
     #target: find value furthest from true across interval [-1,1]
     #mse between predicted and target
-    #K.maximum(-1-y_true, 1-y_true)
-    #K.sign(K.round(y_true))
-    return K.mean(K.sum(K.square(y_pred)), axis=-1)
+    #muliply by big number, clip to [-1,1], add a negative sign
+    #-np.clip(x*10000, -1, 1)
+    return K.mean(K.sum(K.square(y_pred + K.clip(y_true*10000, -1, 1)), axis=-1), axis=-1)
 
 def hingeLoss(y_true, y_pred):
     #E_x max(||G(x) - x||_2 - c, 0) where c is user-defined. Here it is set to 2
