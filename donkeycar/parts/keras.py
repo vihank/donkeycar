@@ -17,8 +17,8 @@ import numpy as np
 
 import tensorflow as tf
 from tensorflow.python import keras
-from tensorflow.python.keras.layers import Input, Dense, InputLayer, Convolution2D, MaxPooling2D, Reshape, BatchNormalization, \
-                                            Activation, Dropout, Flatten, Cropping2D, Lambda, LSTM, Conv3D, MaxPooling3D, Cropping3D, Conv2DTranspose
+from tensorflow.python.keras.layers import Input, Dense, Convolution2D, MaxPooling2D, BatchNormalization, \
+                                            Activation, Dropout, Flatten, LSTM, Conv3D, MaxPooling3D, Conv2DTranspose
 from tensorflow.python.keras.models import Model, Sequential
 from tensorflow.python.keras.layers.merge import concatenate
 from tensorflow.python.keras.layers.wrappers import TimeDistributed as TD
@@ -56,7 +56,7 @@ class KerasPilot(object):
     def compile(self):
         pass
 
-    def set_optimizer(self, optimizer_type, rate, decay, beta_1=0.9, beta_2=0.9, epsilon=None):
+    def set_optimizer(self, optimizer_type, rate, decay, beta_1=0.9, beta_2=0.999, epsilon=1e-07):
         if optimizer_type == "adam":
             self.model.optimizer = keras.optimizers.Adam(lr=rate, beta_1=beta_1, beta_2=beta_2, epsilon=epsilon, decay=decay)
         elif optimizer_type == "sgd":
@@ -241,7 +241,7 @@ class KerasDave2(KerasPilot):
         self.compile()
 
     def compile(self):
-        self.model.compile(optimizer=self.optimizer, metrics=['acc'], loss='categorical_crossentropy')
+        self.model.compile(optimizer=self.optimizer, metrics=['acc'], loss='mse')
 
     def run(self, img_arr):
         if img_arr is None:
@@ -249,9 +249,9 @@ class KerasDave2(KerasPilot):
             return 0.0, 0.0
 
         img_arr = img_arr.reshape((1,) + img_arr.shape)
-        angle_binned = self.model.predict(img_arr)
-        angle_unbinned = dk.utils.linear_unbin(angle_binned)
-        return angle_unbinned, 0.5
+        output = self.model.predict(img_arr)
+        angle = output[0][0]
+        return angle, 0.45
     
     def __call__(self, input):
         return self.model(input)
@@ -267,7 +267,7 @@ def default_dave2(input_shape=(120, 160, 3), roi_crop=(0, 0)):
     '''
     implementation of DAVE-2 model architecture
     '''
-    drop = 0.5
+    drop = 0.2
 
     #we now expect that cropping done elsewhere. we will adjust our expected image size here:
     input_shape = adjust_input_shape(input_shape, roi_crop)
@@ -275,22 +275,25 @@ def default_dave2(input_shape=(120, 160, 3), roi_crop=(0, 0)):
     img_in = Input(shape=input_shape, name='img_in')
 
     x = img_in
-    x = BatchNormalization()(x)
+    x = (BatchNormalization())(x)
     x = (Convolution2D(24, (5,5), strides=(2,2), activation='relu', name="conv2d_1"))(x)
+    x = (Dropout(drop))(x)
     x = (Convolution2D(36, (5,5), strides=(2,2), activation='relu', name="conv2d_2"))(x)
+    x = (Dropout(drop))(x)
     x = (Convolution2D(48, (5,5), strides=(2,2), activation='relu', name="conv2d_3"))(x)
+    x = (Dropout(drop))(x)
 
     x = (Convolution2D(64, (3,3), strides=(1,1), activation='relu', name="conv2d_4"))(x)
+    x = (Dropout(drop))(x)
     x = (Convolution2D(64, (3,3), strides=(1,1), activation='relu', name="conv2d_5"))(x)
+    x = (Dropout(drop))(x)
     x = (Flatten(name='flattened'))(x)
     x = (Dense(100, activation='relu'))(x)
     x = (Dropout(drop))(x)
     x = (Dense(50, activation='relu'))(x)
     x = (Dropout(drop))(x)
-    x = (Dense(10, activation='relu'))(x)
-    x = (Dropout(drop))(x)
     
-    angle_out = Dense(15, activation='softmax', name='angle_out')(x)        # Connect every input with every output and output 15 hidden units. Use Softmax to give percentage. 15 categories and find best one based off percentage 0.0-1.0
+    angle_out = Dense(1, activation='linear', name='angle_out')(x)
 
     x = Model(inputs=[img_in], outputs=angle_out)
 

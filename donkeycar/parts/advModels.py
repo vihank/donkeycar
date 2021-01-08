@@ -13,6 +13,7 @@ from tensorflow.keras import layers
 from tensorflow.python.keras.models import Model
 from tensorflow.keras.layers import Input, Dense, Dropout, Flatten, Activation,  LeakyReLU, Input, Dense,\
                          BatchNormalization, Conv2D, Conv2DTranspose, BatchNormalization, Cropping2D
+import numpy as np
 
 if tf.__version__ == '1.13.1':
     from tensorflow import ConfigProto, Session
@@ -70,8 +71,62 @@ class Basic(KerasGAN):
         output = self.model.predict(img_arr)
         return output
 
-    
+def default_generator(input_shape):
+    input = Input(shape=input_shape)
 
+    G = Conv2D(filters=8, kernel_size=(3,3), padding='same')(input)
+    G = Activation('relu')(G)
+
+    G = Conv2D(filters=16, kernel_size=(3,3), strides=(2,2), padding='same')(G)
+    G = Activation('relu')(G)
+
+    G = Conv2D(64, 3, strides=(2,2), padding='same')(G)
+    G = Activation('relu')(G)
+
+    residual = G
+    #four r32 blocks
+    for _ in range(4):
+        G = Conv2D(32, 3, padding='same')(G)
+        G = BatchNormalization()(G)
+        G = Activation('relu')(G)
+        G = Conv2D(64, 3, padding='same')(G)
+        G = BatchNormalization()(G)
+        G = layers.add([G, residual])
+        residual = G
+
+    G = Conv2DTranspose(16, 3, strides=(2,2), padding='same')(G)
+    G = Activation('relu')(G)
+
+    G = Conv2DTranspose(filters=8, kernel_size=(3,3), strides=(2,2), padding='same')(G)
+    G = Activation('relu')(G)
+
+    G = Conv2D(filters=3, kernel_size=(3,3), padding='same')(G)
+    G = Activation('relu')(G)
+
+    G = Cropping2D(cropping=((1, 1), (0, 0)))(G)
+
+    G = layers.add([G, input])
+
+    model = Model(inputs=input, outputs=G)
+    return model
+
+def build_disc(inputs):
+    D = Conv2D(32, 4, strides=(2,2))(inputs)
+    D = LeakyReLU()(D)
+    D = Dropout(0.4)(D)
+    D = Conv2D(64, 4, strides=(2,2))(D)
+    D = BatchNormalization()(D)
+    D = LeakyReLU()(D)
+    D = Dropout(0.4)(D)
+    D = Conv2D(32, 4, strides=(2,2))(D)
+    D = Dropout(0.4)(D)
+    D = Flatten()(D)
+    D = Dense(32)(D)
+    D = LeakyReLU()(D)
+    D = Dense(1, activation='sigmoid')(D)
+    return D
+
+'''
 class G2(KerasGAN):
     def __init__(self, num_outputs=1, input_shape=(66, 200, 3), *args, **kwargs):
         super(G2, self).__init__(*args, **kwargs)
@@ -90,69 +145,4 @@ def model_2(num_outputs, input_shape):
     #this is the next model
     model = Model()
     return model
-
-def default_generator(input_shape):
-    input = Input(shape=input_shape)
-    #c3s1-8
-    G = Conv2D(filters=8, kernel_size=(3,3), padding='same')(input)
-    #G = InstanceNormalization()(G)
-    G = Activation('relu')(G)
-
-    #d16
-    G = Conv2D(filters=16, kernel_size=(3,3), strides=(2,2), padding='same')(G)
-    #G = InstanceNormalization()(G)
-    G = Activation('relu')(G)
-
-    #d32
-    G = Conv2D(filters=32, kernel_size=(3,3), strides=(2,2), padding='same')(G)
-    #G = InstanceNormalization()(G)
-    G = Activation('relu')(G)
-
-    residual = G
-    #four r32 blocks
-    for _ in range(4):
-        G = Conv2D(filters=32, kernel_size=(3,3), padding='same')(G)
-        G = BatchNormalization()(G)
-        G = Activation('relu')(G)
-        G = Conv2D(filters=32, kernel_size=(3,3), padding='same')(G)
-        G = BatchNormalization()(G)
-        G = layers.add([G, residual])
-        residual = G
-
-    #u16
-    G = Conv2DTranspose(filters=16, kernel_size=(3,3), strides=(2,2), padding='same')(G)
-    #G = InstanceNormalization()(G)
-    G = Activation('relu')(G)
-
-    #u8
-    G = Conv2DTranspose(filters=8, kernel_size=(3,3), strides=(2,2), padding='same')(G)
-    #G = InstanceNormalization()(G)
-    G = Activation('relu')(G)
-
-    #c3s1-3
-    G = Conv2D(filters=3, kernel_size=(3,3), padding='same')(G)
-    #G = InstanceNormalization()(G)
-    G = Activation('relu')(G)
-
-    G = Cropping2D(cropping=((1, 1), (0, 0)))(G)
-    
-    G = layers.add([G, input])
-
-    model = Model(inputs=input, outputs=G)
-    return model
-
-def build_disc(inputs):
-
-        D = Conv2D(32, 4, strides=(2,2))(inputs)
-        D = LeakyReLU()(D)
-        D = Dropout(0.4)(D)
-        D = Conv2D(64, 4, strides=(2,2))(D)
-        D = BatchNormalization()(D)
-        D = LeakyReLU()(D)
-        D = Dropout(0.4)(D)
-        D = Flatten()(D)
-        D = Dense(64)(D)
-        D = BatchNormalization()(D)
-        D = LeakyReLU()(D)
-        D = Dense(1, activation='sigmoid')(D)
-        return D
+'''

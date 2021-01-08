@@ -9,6 +9,8 @@ Donkeycar is minimalist and modular self driving library for Python. It is
 developed for hobbyists and students with a focus on allowing fast experimentation and easy
 community contributions.
 
+This fork has my implementation of AdvGan from the paper by Xiao et al. (2019) https://arxiv.org/pdf/1801.02610.pdf.
+
 #### Quick Links
 * [Donkeycar Updates & Examples](http://donkeycar.com)
 * [Build instructions and Software documentation](http://docs.donkeycar.com)
