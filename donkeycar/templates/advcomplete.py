@@ -3,8 +3,8 @@
 Scripts to drive a donkey 2 car
 
 Usage:
-    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|dave2)] [--meta=<key:value> ...] [--myconfig=<filename>] [--advpath=<path>]
-    advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|dave2)] [--continuous] [--aug] [--myconfig=<filename>] [--adv] [--modelo=<model>]
+    advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|dave2)] [--meta=<key:value> ...] [--myconfig=<filename>] [--adv]
+    advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|dave2)] [--continuous] [--aug] [--myconfig=<filename>]
 
 
 Options:
@@ -29,7 +29,7 @@ from donkeycar.parts.throttle_filter import ThrottleFilter
 from donkeycar.parts.file_watcher import FileWatcher
 from donkeycar.utils import *
 
-def drive(cfg, adv_path=None, model_path=None, model_type=None, meta=[]):
+def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
     '''
     Construct a working robotic vehicle from many parts.
     Each part runs as a job in the Vehicle loop, calling either
@@ -140,45 +140,15 @@ def drive(cfg, adv_path=None, model_path=None, model_type=None, meta=[]):
         def run(self, img_arr):
             return normalize_and_crop(img_arr, self.cfg)
 
-    if adv_path is not None:
-        inf_input = 'img/attack'
-    else:
-        inf_input = 'cam/normalized/cropped'
-
+    inf_input = 'cam/normalized/cropped'
     V.add(ImgPreProcess(cfg),
         inputs=['cam/image_array'],
         outputs=[inf_input],
         run_condition='run_pilot')
 
-    #add an adversarial example generator that will run every once in a while (dependent on cfg settings)
-    #TODO test following
-    if adv_path is not None:
-
-        advGen = get_adv_model_by_type(cfg, cfg.ADV_DEFAULT_MODEL_TYPE)
-
-        if '.h5' in adv_path or '.uff' in adv_path or 'tflite' in adv_path or '.pkl' in adv_path:
-            #when we have a .h5 extension
-            #load everything from the model file
-            load_model(advGen, adv_path)
-
-        else:
-            print("ERR>> Unknown extension type on model file!!")
-            return
-        '''
-        class AttackCondition:
-            def run(self, frame):
-                if frame % cfg.ADV_ATTACK == 0:
-                    return True
-                else:
-                    return False
-
-        V.add(AttackCondition(), inputs=["tub/num_records"], outputs=['adv_atack'])
-        '''
-
-        V.add(advGen, inputs=[inf_input], outputs=[inf_input]) #, run_condition='adv_attack')
-
 
     inputs=[inf_input]
+
 
     if model_path:
         #When we have a model, first create an appropriate Keras part
@@ -203,6 +173,33 @@ def drive(cfg, adv_path=None, model_path=None, model_type=None, meta=[]):
 
         if cfg.TRAIN_LOCALIZER:
             outputs.append("pilot/loc")
+
+        if adv:
+            import tensorflow as tf
+
+            class AdvAttack:
+
+                def __init__(self, kl, attack_freq):
+                    self.kl = kl
+                    self.attack_freq = attack_freq
+
+                def run(self, img, num_rec):
+                    if num_rec != None and num_rec % self.attack_freq == 0:
+                        ang = self.kl.model.predict(img)
+                        with tf.GradientTape as tape:
+                            tape.watch(img)
+                            prediction = self.kl.model.predict(img)
+                            loss = tf.keras.losses.MSE(ang, prediction)
+                        
+                        gradient = tape.gradient(loss, img)
+
+                        signed_grad = tf.sign(gradient)
+                        
+                        return img + (signed_grad[0]*0.5 + 0.5), img
+
+
+            advGenerator = AdvAttack(kl, cfg.ADV_ATTACK)
+            V.add(advGenerator, inputs=[inf_input, "tub/num_records"], outputs=[inf_input, 'img/old'], run_condition='run_pilot')
 
         V.add(kl, inputs=inputs,
             outputs=outputs,
@@ -243,12 +240,25 @@ def drive(cfg, adv_path=None, model_path=None, model_type=None, meta=[]):
         '''
         Breaks down info returned from environment for storage in tub
         '''
-        def run(self, info='env/info'):
+        def __init__(self, cfg):
+            self.attack_freq = cfg.ADV_ATTACK
+            self.img_h = cfg.IMAGE_H
+            self.img_w = cfg.IMAGE_W
+            self.img_d = cfg.IMAGE_DEPTH
+
+        def run(self, info, img, img_old, num_rec):
             cte=info['cte']
             pos_x = info['pos'][0]
             pos_z = info['pos'][2]
 
-            return cte, pos_x, pos_z
+            if num_rec != None and num_rec % self.attack_freq == 0:
+                temp_img = img
+                img = img_old
+                img_adv = temp_img
+            else:
+                img_adv = np.zeros((self.img_h, self.img_w, self.img_d))
+
+            return cte, pos_x, pos_z, img, img_adv
 
     #add tub to save data
     inputs=['cam/image_array',
@@ -260,16 +270,14 @@ def drive(cfg, adv_path=None, model_path=None, model_type=None, meta=[]):
            'str']
 
     if cfg.DONKEY_GYM:
-        V.add(envInfoHandler(), inputs=['env/info'], outputs=['env/cte','env/pos_x', 'env/pos_z'])
+        V.add(envInfoHandler(cfg), inputs=['env/info', inf_input, 'img/old', 'tub/num_records'], outputs=['env/cte','env/pos_x', 'env/pos_z', inf_input, 'adv/img'])
         inputs.append('env/cte')
         inputs.append('env/pos_x')
         inputs.append('env/pos_z')
+        inputs.append('adv/img')
         types.append('float')
         types.append('float')
         types.append('float')
-
-    if adv_path is not None:
-        inputs.append(inf_input)
         types.append('image_array')
 
     th = TubHandler(path=cfg.DATA_PATH)
@@ -291,9 +299,9 @@ if __name__ == '__main__':
     if args['drive']:
         model_type = args['--type']
 
-        drive(cfg, adv_path=args['--advpath'],
-              model_path=args['--model'],
+        drive(cfg, model_path=args['--model'],
               model_type=model_type,
+              adv=args['--adv'],
               meta=args['--meta'])
 
     if args['train']:
@@ -306,18 +314,13 @@ if __name__ == '__main__':
         continuous = args['--continuous']
         aug = args['--aug']
         dirs = preprocessFileList( args['--file'] )
-        adv = args['--adv']
-        model_out = None
 
-        if adv:
-            model_out = args['--modelo']
-        
         if tub is not None:
             tub_paths = [os.path.expanduser(n) for n in tub.split(',')]
             dirs.extend( tub_paths )
 
-        if model_type is None and not adv:
+        if model_type is None:
             model_type = cfg.DEFAULT_MODEL_TYPE
             print("using default model type of", model_type)
 
-        multi_train(cfg, dirs, model, transfer, model_type, continuous, aug, model_out)
+        multi_train(cfg, dirs, model, transfer, model_type, continuous, aug)

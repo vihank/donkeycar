@@ -123,6 +123,8 @@ ADV_EPOCH = 100                 #how many times to visit all records of your dat
 ADV_SHOW_PLOT = True            #would you like to see a pop up display of final loss?
 ADV_BATCH_SIZE = 128            #how many records to use when doing one pass of gradient decent. Use a smaller number if your gpu is running out of memory.
 ADV_THRESH = 0.15                #defines boundries for accepting a image as missclassified
+ADV_ALPHA = 0.5
+ADV_BETA = 0.5
 ADV_EARLY_STOP = True           #would you like to stop the training if we see it's not improving fit?
 ADV_EARLY_PATIENCE = 7          #how many epochs to wait before no improvement, must be greater than 0
 ADV_MIN_DELTA = 0.005           #early stop will want this much loss change before calling it improved.
@@ -156,7 +158,7 @@ NUM_LAST_LAYERS_TO_TRAIN = 7        #when freezing layers, how many layers from 
 
 #WEB CONTROL
 WEB_CONTROL_PORT = 8887             # which port to listen on when making a web controller
-WEB_INIT_MODE = "user"              # which control mode to start in. one of user|local_angle|local. Setting local will start in ai mode.
+WEB_INIT_MODE = "local"              # which control mode to start in. one of user|local_angle|local. Setting local will start in ai mode.
 
 #JOYSTICK
 USE_JOYSTICK_AS_DEFAULT = False     #when starting the manage.py, when True, will not require a --js option to use the joystick
@@ -204,7 +206,7 @@ MM1_SHOW_STEERING_VALUE = False
 MM1_SERIAL_PORT = '/dev/ttyS0'  # Serial Port for reading and sending MM1 data.
 
 #RECORD OPTIONS
-RECORD_DURING_AI = False        #normally we do not record during ai mode. Set this to true to get image and steering records for your Ai. Be careful not to use them to train.
+RECORD_DURING_AI = True        #normally we do not record during ai mode. Set this to true to get image and steering records for your Ai. Be careful not to use them to train.
 
 #LED
 HAVE_RGB_LED = False            #do you have an RGB LED like https://www.amazon.com/dp/B07BNRZWNF
