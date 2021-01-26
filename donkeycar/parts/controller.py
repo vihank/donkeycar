@@ -356,11 +356,11 @@ class PS4Joystick(Joystick):
         self.axis_names = {
             0x00 : 'left_stick_horz',
             0x01 : 'left_stick_vert',
-            0x02 : 'right_stick_horz',
-            0x05 : 'right_stick_vert',
+            0x03 : 'right_stick_horz',
+            0x04 : 'right_stick_vert',
 
-            0x03 : 'left_trigger_axis',
-            0x04 : 'right_trigger_axis',
+            0x02 : 'left_trigger_axis',
+            0x05 : 'right_trigger_axis',
 
             0x10 : 'dpad_leftright',
             0x11 : 'dpad_updown',
@@ -376,21 +376,21 @@ class PS4Joystick(Joystick):
 
         self.button_names = {
 
-            0x130 : 'square',
-            0x131 : 'cross',
-            0x132 : 'circle',
+            0x134 : 'square',
+            0x130 : 'cross',
+            0x131 : 'circle',
             0x133 : 'triangle',
 
-            0x134 : 'L1',
-            0x135 : 'R1',
+            0x138 : 'L1',
+            0x139 : 'R1',
             0x136 : 'L2',
             0x137 : 'R2',
             0x13a : 'L3',
             0x13b : 'R3',
 
             0x13d : 'pad',
-            0x138 : 'share',
-            0x139 : 'options',
+            0x13a : 'share',
+            0x13b : 'options',
             0x13c : 'PS',
         }
 
@@ -518,13 +518,8 @@ class XboxOneJoystick(Joystick):
 
         self.axis_names = {
             0x00: 'left_stick_horz',
-            0x01: 'left_stick_vert',
-            0x02: 'right_stick_horz',
-            0x05: 'right_stick_vert',
-            0x09: 'right_trigger',
-            0x0a: 'left_trigger',
-            0x10: 'dpad_horz',
-            0x11: 'dpad_vert',
+            0x02: 'left_trigger',
+            0x05: 'right_trigger'
         }
 
         self.button_names = {
@@ -786,8 +781,8 @@ class JoystickController(object):
     def erase_last_N_records(self):
         if self.tub is not None:
             try:
-                self.tub.erase_last_n_records(self.num_records_to_erase)
-                print('erased last %d records.' % self.num_records_to_erase)
+                self.tub.delete_last_n_records(self.num_records_to_erase)
+                print('deleted last %d records.' % self.num_records_to_erase)
             except:
                 print('failed to erase')
 
@@ -1520,30 +1515,12 @@ def get_js_controller(cfg):
     return ctr
 
 if __name__ == "__main__":
-    '''
-    publish ps3 controller
-    when running from ubuntu 16.04, it will interfere w mouse until:
-    xinput set-prop "Sony PLAYSTATION(R)3 Controller" "Device Enabled" 0
-    '''
-    print("You may need:")
-    print('xinput set-prop "Sony PLAYSTATION(R)3 Controller" "Device Enabled" 0')
-    #p = JoyStickPub()
+    # Testing the XboxOneJoystickController
+    js = XboxOneJoystick('/dev/input/js0')
+    js.init()
 
-    
-    #Ps4 pygame controller test.
-    import donkeycar
-    v = donkeycar.vehicle.Vehicle()
-    p = PyGamePS4JoystickController()
-    v.add(p, inputs=['cam/image_array'],
-          outputs=['user/angle', 'user/throttle', 'user/mode', 'recording'],
-          threaded=True)
-    v.start(max_loop_count = 100)
-    
-    '''
-    j = PyGamePS4Joystick(which_js=0)
-    i = 0
-    while i < 100:
-        j.poll()
-        time.sleep(0.1)
-        i += 1
-    '''
+    while True:
+        button, button_state, axis, axis_val = js.poll()
+        if (button is not None or axis is not None):
+            print(button, button_state, axis, axis_val)
+            time.sleep(0.1)

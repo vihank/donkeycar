@@ -84,6 +84,9 @@ HBRIDGE_PIN_RIGHT_BWD = 13
 
 
 #TRAINING
+# The default AI framework to use. Choose from (tensorflow|pytorch)
+DEFAULT_AI_FRAMEWORK='tensorflow'
+
 #The DEFAULT_MODEL_TYPE will choose which model will be created at training time. This chooses
 #between different neural network designs. You can override this setting by passing the command
 #line parameter --type to the python manage.py train and drive commands.
@@ -116,23 +119,23 @@ PRUNE_EVAL_PERCENT_OF_DATASET = .05  # percent of dataset used to perform evalua
 
 #Adversarial Training
 #automatically set constants for adversarial training and drive
-ADV_DRIVE = False
+#ADV_DRIVE = False
 ADV_ATTACK = 20                 #will inject an adversarial attack every N frames
-ADV_DEFAULT_MODEL_TYPE = 'basic' #possible architectures for the adversarial image generators
-ADV_EPOCH = 100                 #how many times to visit all records of your data
-ADV_SHOW_PLOT = True            #would you like to see a pop up display of final loss?
-ADV_BATCH_SIZE = 128            #how many records to use when doing one pass of gradient decent. Use a smaller number if your gpu is running out of memory.
-ADV_THRESH = 0.15                #defines boundries for accepting a image as missclassified
-ADV_ALPHA = 0.5
-ADV_BETA = 0.5
-ADV_EARLY_STOP = True           #would you like to stop the training if we see it's not improving fit?
-ADV_EARLY_PATIENCE = 7          #how many epochs to wait before no improvement, must be greater than 0
-ADV_MIN_DELTA = 0.005           #early stop will want this much loss change before calling it improved.
-ADV_OPTIMIZER = 'adam'          #adam, sgd, rmsprop, etc.. None accepts default
-ADV_LR = 0.002                  #learning rate for the stacked/generator model
-#possibly try both as adam and both lr=0.001
-DISC_OPTIMIZER = 'sgd'          #adam, sgd, rmsprop, etc.. None accepts default
-DISC_LR = 0.001                 #learning rate for the discriminator model
+#ADV_DEFAULT_MODEL_TYPE = 'basic' #possible architectures for the adversarial image generators
+#ADV_EPOCH = 100                 #how many times to visit all records of your data
+#ADV_SHOW_PLOT = True            #would you like to see a pop up display of final loss?
+#ADV_BATCH_SIZE = 128            #how many records to use when doing one pass of gradient decent. Use a smaller number if your gpu is running out of #memory.
+#ADV_THRESH = 0.15                #defines boundries for accepting a image as missclassified
+#ADV_ALPHA = 0.5
+#ADV_BETA = 0.5
+#ADV_EARLY_STOP = True           #would you like to stop the training if we see it's not improving fit?
+#ADV_EARLY_PATIENCE = 7          #how many epochs to wait before no improvement, must be greater than 0
+#ADV_MIN_DELTA = 0.005           #early stop will want this much loss change before calling it improved.
+#ADV_OPTIMIZER = 'adam'          #adam, sgd, rmsprop, etc.. None accepts default
+#ADV_LR = 0.002                  #learning rate for the stacked/generator model
+##possibly try both as adam and both lr=0.001
+#DISC_OPTIMIZER = 'sgd'          #adam, sgd, rmsprop, etc.. None accepts default
+#DISC_LR = 0.001                 #learning rate for the discriminator model
 
 
 
@@ -150,6 +153,7 @@ PI_DONKEY_ROOT = "/home/pi/mycar"   # the location of the mycar dir on the pi. t
 ROI_CROP_TOP = 0                    #the number of rows of pixels to ignore on the top of the image
 ROI_CROP_BOTTOM = 0                 #the number of rows of pixels to ignore on the bottom of the image
 
+
 #Model transfer options
 #When copying weights during a model transfer operation, should we freeze a certain number of layers
 #to the incoming weights and not allow them to change during training?
@@ -157,19 +161,19 @@ FREEZE_LAYERS = False               #default False will allow all layers to be m
 NUM_LAST_LAYERS_TO_TRAIN = 7        #when freezing layers, how many layers from the last should be allowed to train?
 
 #WEB CONTROL
-WEB_CONTROL_PORT = 8887             # which port to listen on when making a web controller
+WEB_CONTROL_PORT = int(os.getenv("WEB_CONTROL_PORT", 8887))  # which port to listen on when making a web controller
 WEB_INIT_MODE = "local"              # which control mode to start in. one of user|local_angle|local. Setting local will start in ai mode.
 
 #JOYSTICK
-USE_JOYSTICK_AS_DEFAULT = False     #when starting the manage.py, when True, will not require a --js option to use the joystick
+USE_JOYSTICK_AS_DEFAULT = True      #when starting the manage.py, when True, will not require a --js option to use the joystick
 JOYSTICK_MAX_THROTTLE = 0.5         #this scalar is multiplied with the -1 to 1 throttle value to limit the maximum throttle. This can help if you drop the controller or just don't need the full speed available.
 JOYSTICK_STEERING_SCALE = 1.0       #some people want a steering that is less sensitve. This scalar is multiplied with the steering -1 to 1. It can be negative to reverse dir.
 AUTO_RECORD_ON_THROTTLE = True      #if true, we will record whenever throttle is not zero. if false, you must manually toggle recording with some other trigger. Usually circle button on joystick.
-CONTROLLER_TYPE='ps3'               #(ps3|ps4|xbox|nimbus|wiiu|F710|rc3)
+CONTROLLER_TYPE = 'xbox'            #(ps3|ps4|xbox|nimbus|wiiu|F710|rc3|MM1|custom) custom will run the my_joystick.py controller written by the `donkey createjs` command
 USE_NETWORKED_JS = False            #should we listen for remote joystick control over the network?
-NETWORK_JS_SERVER_IP = "192.168.0.1"#when listening for network joystick control, which ip is serving this information
-JOYSTICK_DEADZONE = 0.0             # when non zero, this is the smallest throttle before recording triggered.
-JOYSTICK_THROTTLE_DIR = -1.0        # use -1.0 to flip forward/backward, use 1.0 to use joystick's natural forward/backward
+NETWORK_JS_SERVER_IP = None         #when listening for network joystick control, which ip is serving this information
+JOYSTICK_DEADZONE = 0.01            # when non zero, this is the smallest throttle before recording triggered.
+JOYSTICK_THROTTLE_DIR = 1.0         # use -1.0 to flip forward/backward, use 1.0 to use joystick's natural forward/backward
 USE_FPV = False                     # send camera data to FPV webserver
 JOYSTICK_DEVICE_FILE = "/dev/input/js0" # this is the unix file use to access the joystick.
 
@@ -205,8 +209,18 @@ MM1_SHOW_STEERING_VALUE = False
 #  eg.'/dev/tty.usbmodemXXXXXX' and replace the port accordingly
 MM1_SERIAL_PORT = '/dev/ttyS0'  # Serial Port for reading and sending MM1 data.
 
+#TELEMETRY
+TELEMETRY_DONKEY_NAME = 'my_robot1234'
+TELEMETRY_PUBLISH_PERIOD = 1
+HAVE_MQTT_TELEMETRY = False
+TELEMETRY_MQTT_TOPIC_TEMPLATE = 'donkey/%s/telemetry'
+TELEMETRY_MQTT_JSON_ENABLE = True
+TELEMETRY_MQTT_BROKER_HOST = 'broker.emqx.io'
+TELEMETRY_MQTT_BROKER_PORT = 1883
+
 #RECORD OPTIONS
 RECORD_DURING_AI = True        #normally we do not record during ai mode. Set this to true to get image and steering records for your Ai. Be careful not to use them to train.
+AUTO_CREATE_NEW_TUB = True     #create a new tub (tub_YY_MM_DD) directory when recording or append records to data directory directly
 
 #LED
 HAVE_RGB_LED = False            #do you have an RGB LED like https://www.amazon.com/dp/B07BNRZWNF

@@ -23,7 +23,7 @@ class DonkeyGymEnv(object):
         conf['guid'] = 0
         self.env = gym.make(env_name, conf=conf)
         self.frame = self.env.reset()
-        self.action = [0.0, 0.0]
+        self.action = [0.0, 0.0, 0.0]
         self.running = True
         self.info = {'pos' : (0., 0., 0.), 'cte' : None}
         self.delay = float(delay)
@@ -32,10 +32,12 @@ class DonkeyGymEnv(object):
         while self.running:
             self.frame, _, _, self.info = self.env.step(self.action)
 
-    def run_threaded(self, steering, throttle):
+    def run_threaded(self, steering, throttle, brake=None):
         if steering is None or throttle is None:
             steering = 0.0
             throttle = 0.0
+        if brake is None:
+            brake = 0.0
         if self.delay > 0.0:
             time.sleep(self.delay / 1000.0)
         self.action = [steering, throttle]

@@ -2,11 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sat Jun 24 20:10:44 2017
-
 @author: wroscoe
-
 remotes.py
-
 The client and web server needed to control a car remotely.
 """
 
@@ -136,8 +133,8 @@ class LocalWebController(tornado.web.Application):
 
         settings = {'debug': True}
         super().__init__(handlers, **settings)
-        print("... you can now go to {}.local:8887 to drive "
-              "your car.".format(gethostname()))
+        print("... you can now go to {}.local:{} to drive "
+              "your car.".format(gethostname(), port))
 
     def update(self):
         ''' Start the tornado webserver. '''
@@ -357,6 +354,5 @@ class WebFpv(Application):
 
     def shutdown(self):
         pass
-
 
 
