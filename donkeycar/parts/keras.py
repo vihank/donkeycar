@@ -434,7 +434,7 @@ class KerasDave2(KerasPilot):
     def compile(self):
         self.model.compile(optimizer=self.optimizer, metrics=['acc'], loss='mse')
 
-    def run(self, img_arr):
+    def inference(self, img_arr, other_arr):
         if img_arr is None:
             print('no image')
             return 0.0, 0.0
@@ -443,15 +443,31 @@ class KerasDave2(KerasPilot):
         output = self.model.predict(img_arr)
         angle = output[0][0]
         return angle, 0.45
-    
-    def __call__(self, input):
-        return self.model(input)
+
+    def y_transform(self, record: TubRecord):
+        angle: float = record.underlying['user/angle']
+        throttle: float = record.underlying['user/throttle']
+        return angle, throttle
+
+    def y_translate(self, y: XY) -> Dict[str, Union[float, np.ndarray]]:
+        if isinstance(y, tuple):
+            angle, _ = y
+            return {'angle_out': angle}
+        else:
+            raise TypeError('Expected tuple')
+
+    def output_shapes(self):
+        # need to cut off None from [None, 120, 160, 3] tensor shape
+        img_shape = self.get_input_shape()[1:]
+        shapes = ({'img_in': tf.TensorShape(img_shape)},
+                  {'angle_out': tf.TensorShape([])})
+        return shapes
+
 
 def adjust_input_shape(input_shape, roi_crop):
     height = input_shape[0]
     new_height = height - roi_crop[0] - roi_crop[1]
     return (new_height, input_shape[1], input_shape[2])
-
 
 
 def default_dave2(input_shape=(120, 160, 3), roi_crop=(0, 0)):

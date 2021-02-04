@@ -29,6 +29,8 @@ from donkeycar.parts.throttle_filter import ThrottleFilter
 from donkeycar.parts.file_watcher import FileWatcher
 from donkeycar.utils import *
 
+#python advmanage.py drive --model models/1.h5 --adv
+
 def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
     '''
     Construct a working robotic vehicle from many parts.
@@ -129,23 +131,41 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
     rec_tracker_part = RecordTracker()
     V.add(rec_tracker_part, inputs=["tub/num_records"], outputs=['records/alert'])
 
-    class ImgPreProcess():
-        '''
-        preprocess camera image for inference.
-        normalize and crop if needed.
-        '''
-        def __init__(self, cfg):
-            self.cfg = cfg
-
-        def run(self, img_arr):
-            return normalize_and_crop(img_arr, self.cfg)
-
-    inf_input = 'cam/normalized/cropped'
-    V.add(ImgPreProcess(cfg),
+    # Watch for following
+    '''
         inputs=['cam/image_array'],
         outputs=[inf_input],
         run_condition='run_pilot')
+    '''
 
+    class AdvAttack:
+
+        def __init__(self, kl, attack_freq):
+            self.kl = kl
+            self.attack_freq = attack_freq
+
+        
+        def adversarial_pattern(self, image, label):
+            image = tf.cast(image, tf.float32)
+            
+            with tf.GradientTape() as tape:
+                tape.watch(image)
+                prediction = self.kl.model.predict(image)
+                loss = tf.keras.losses.MSE(label, prediction)
+            
+            gradient = tape.gradient(loss, image)
+            
+            signed_grad = tf.sign(gradient)
+            
+            return signed_grad
+
+        def run(self, img, num_rec):
+            if num_rec != None and num_rec % self.attack_freq == 0:
+                ang = self.kl.model.predict(img)
+                
+                grad = self.adversarial_pattern(img, ang)
+                
+                return img + (grad[0]*0.5 + 0.5), img
 
     inputs=[inf_input]
 
@@ -169,6 +189,11 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
             print("ERR>> Unknown extension type on model file!!")
             return
 
+        #these parts will reload the model file, but only when ai is running so we don't interrupt user driving
+        V.add(FileWatcher(model_path), outputs=['modelfile/dirty'], run_condition="ai_running")
+        V.add(DelayedTrigger(100), inputs=['modelfile/dirty'], outputs=['modelfile/reload'], run_condition="ai_running")
+        V.add(TriggeredCallback(model_path, model_reload_cb), inputs=["modelfile/reload"], run_condition="ai_running")
+
         outputs=['pilot/angle', 'pilot/throttle']
 
         if cfg.TRAIN_LOCALIZER:
@@ -177,29 +202,7 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
         if adv:
             import tensorflow as tf
 
-            class AdvAttack:
-
-                def __init__(self, kl, attack_freq):
-                    self.kl = kl
-                    self.attack_freq = attack_freq
-
-                def run(self, img, num_rec):
-                    if num_rec != None and num_rec % self.attack_freq == 0:
-                        ang = self.kl.model.predict(img)
-                        with tf.GradientTape as tape:
-                            tape.watch(img)
-                            prediction = self.kl.model.predict(img)
-                            loss = tf.keras.losses.MSE(ang, prediction)
-                        
-                        gradient = tape.gradient(loss, img)
-
-                        signed_grad = tf.sign(gradient)
-                        
-                        return img + (signed_grad[0]*0.5 + 0.5), img
-
-
-            advGenerator = AdvAttack(kl, cfg.ADV_ATTACK)
-            V.add(advGenerator, inputs=[inf_input, "tub/num_records"], outputs=[inf_input, 'img/old'], run_condition='run_pilot')
+            V.add(AdvAttack(kl, cfg.ADV_ATTACK), inputs=[inf_input, "tub/num_records"], outputs=[inf_input, 'img/old'], run_condition='run_pilot')
 
         V.add(kl, inputs=inputs,
             outputs=outputs,
@@ -235,6 +238,19 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
             return True
 
     V.add(AiRunCondition(), inputs=['user/mode'], outputs=['ai_running'])
+
+    #Ai Recording
+    class AiRecordingCondition:
+        '''
+        return True when ai mode, otherwize respect user mode recording flag
+        '''
+        def run(self, mode, recording):
+            if mode == 'user':
+                return recording
+            return True
+
+    if cfg.RECORD_DURING_AI:
+        V.add(AiRecordingCondition(), inputs=['user/mode', 'recording'], outputs=['recording'])
 
     class envInfoHandler:
         '''

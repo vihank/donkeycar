@@ -67,7 +67,7 @@ def arr_to_img(arr):
     accepts: numpy array with shape (Height, Width, Channels)
     returns: binary stream (used to save to database)
     '''
-    arr = np.uint8(arr)
+    arr = np.uint8(arr[0])
     img = Image.fromarray(arr)
     return img
 
@@ -416,11 +416,9 @@ def get_model_by_type(model_type: str, cfg: 'Config') -> 'KerasPilot':
     given the string model_type and the configuration settings in cfg
     create a Keras model and return it.
     '''
-    from donkeycar.parts.keras import KerasRNN_LSTM, KerasBehavioral, \
-        KerasCategorical, KerasIMU, KerasLinear, Keras3D_CNN, \
-        KerasLocalizer, KerasLatent, KerasDave2
     from donkeycar.parts.keras import KerasPilot, KerasCategorical, \
-        KerasLinear, KerasInferred
+        KerasLinear, KerasInferred, KerasCategorical, KerasIMU, \
+        KerasDave2
     from donkeycar.parts.tflite import TFLitePilot
 
     if model_type is None:
