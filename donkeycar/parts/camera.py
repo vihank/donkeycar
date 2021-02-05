@@ -303,7 +303,6 @@ class ImageListCamera(BaseCamera):
             self.i_frame = (self.i_frame + 1) % self.num_images
             self.frame = Image.open(self.image_filenames[self.i_frame]) 
         img = np.asarray(self.frame)
-        img = img.reshape((1,) + img.shape)
         return img
 
     def shutdown(self):

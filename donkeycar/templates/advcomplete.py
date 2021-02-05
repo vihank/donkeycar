@@ -4,7 +4,7 @@ Scripts to drive a donkey 2 car
 
 Usage:
     advmanage.py (drive) [--model=<model>] [--js] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|latent|dave2)] [--meta=<key:value> ...] [--myconfig=<filename>] [--adv]
-    advmanage.py (train) [--tub=<tub1,tub2,..tubn>] [--file=<file> ...] (--model=<model>) [--transfer=<model>] [--type=(linear|categorical|rnn|imu|behavior|3d|localizer|dave2)] [--continuous] [--aug] [--myconfig=<filename>]
+
 
 
 Options:
@@ -12,7 +12,8 @@ Options:
     --js                    Use physical joystick.
     -f --file=<file>        A text file containing paths to tub files, one per line. Option may be used more than once.
     --meta=<key:value>      Key/Value strings describing describing a piece of meta data about this drive. Option may be used more than once.
-    --myconfig=filename     Specify myconfig file to use. [default: myconfig.py]
+    --myconfig=filename     Specify myconfig file to use. 
+                            [default: myconfig.py]
 """
 import os
 import time
@@ -22,11 +23,10 @@ from docopt import docopt
 import donkeycar as dk
 
 #import parts
-from donkeycar.parts.transform import TriggeredCallback, DelayedTrigger
+from donkeycar.parts.tub_v2 import TubWriter
 from donkeycar.parts.datastore import TubHandler
 from donkeycar.parts.controller import LocalWebController
 from donkeycar.parts.throttle_filter import ThrottleFilter
-from donkeycar.parts.file_watcher import FileWatcher
 from donkeycar.utils import *
 
 #python advmanage.py drive --model models/1.h5 --adv
@@ -42,10 +42,12 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
     to parts requesting the same named input.
     '''
 
+    '''
     if cfg.DONKEY_GYM:
         #the simulator will use cuda and then we usually run out of resources
         #if we also try to use cuda. so disable for donkey_gym.
         os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+    '''
 
     #Initialize car
     V = dk.vehicle.Vehicle()
@@ -65,15 +67,15 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
 
     V.add(cam, inputs=inputs, outputs=['cam/image_array', 'env/info'], threaded=threaded)
 
-
     #This web controller will create a web server that is capable
     #of managing steering, throttle, and modes, and more.
-    ctr = LocalWebController(port=cfg.WEB_CONTROL_PORT, mode=cfg.WEB_INIT_MODE)
-    
+    ctr = LocalWebController(port=cfg.WEB_CONTROL_PORT, mode=cfg.WEB_INIT_MODE, adv=adv)
+
     V.add(ctr,
         inputs=['cam/image_array', 'tub/num_records'],
         outputs=['user/angle', 'user/throttle', 'user/mode', 'recording'],
         threaded=True)
+
 
     #this throttle filter will allow one tap back for esc reverse
     th_filter = ThrottleFilter()
@@ -131,44 +133,6 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
     rec_tracker_part = RecordTracker()
     V.add(rec_tracker_part, inputs=["tub/num_records"], outputs=['records/alert'])
 
-    # Watch for following
-    '''
-        inputs=['cam/image_array'],
-        outputs=[inf_input],
-        run_condition='run_pilot')
-    '''
-
-    class AdvAttack:
-
-        def __init__(self, kl, attack_freq):
-            self.kl = kl
-            self.attack_freq = attack_freq
-
-        
-        def adversarial_pattern(self, image, label):
-            image = tf.cast(image, tf.float32)
-            
-            with tf.GradientTape() as tape:
-                tape.watch(image)
-                prediction = self.kl.model.predict(image)
-                loss = tf.keras.losses.MSE(label, prediction)
-            
-            gradient = tape.gradient(loss, image)
-            
-            signed_grad = tf.sign(gradient)
-            
-            return signed_grad
-
-        def run(self, img, num_rec):
-            if num_rec != None and num_rec % self.attack_freq == 0:
-                ang = self.kl.model.predict(img)
-                
-                grad = self.adversarial_pattern(img, ang)
-                
-                return img + (grad[0]*0.5 + 0.5), img
-
-    inputs=[inf_input]
-
 
     if model_path:
         #When we have a model, first create an appropriate Keras part
@@ -190,22 +154,22 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
             return
 
         #these parts will reload the model file, but only when ai is running so we don't interrupt user driving
+        from donkeycar.parts.transform import TriggeredCallback, DelayedTrigger
+        from donkeycar.parts.file_watcher import FileWatcher
+
         V.add(FileWatcher(model_path), outputs=['modelfile/dirty'], run_condition="ai_running")
         V.add(DelayedTrigger(100), inputs=['modelfile/dirty'], outputs=['modelfile/reload'], run_condition="ai_running")
         V.add(TriggeredCallback(model_path, model_reload_cb), inputs=["modelfile/reload"], run_condition="ai_running")
 
-        outputs=['pilot/angle', 'pilot/throttle']
-
-        if cfg.TRAIN_LOCALIZER:
-            outputs.append("pilot/loc")
-
         if adv:
-            import tensorflow as tf
+            from donkeycar.parts.advattack import AdvAttack
 
-            V.add(AdvAttack(kl, cfg.ADV_ATTACK), inputs=[inf_input, "tub/num_records"], outputs=[inf_input, 'img/old'], run_condition='run_pilot')
+            V.add(AdvAttack(kl, cfg.ADV_ATTACK, cfg.ADV_EPSILON), 
+                inputs=['cam/image_array', "tub/num_records"],
+                outputs=['cam/image_array', 'img/old'])
 
-        V.add(kl, inputs=inputs,
-            outputs=outputs,
+        V.add(kl, inputs=['cam/image_array'],
+            outputs=['pilot/angle', 'pilot/throttle'],
             run_condition='run_pilot')
 
     #Choose what inputs should change the car.
@@ -252,10 +216,12 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
     if cfg.RECORD_DURING_AI:
         V.add(AiRecordingCondition(), inputs=['user/mode', 'recording'], outputs=['recording'])
 
-    class envInfoHandler:
+    class EnvInfoHandler:
         '''
         Breaks down info returned from environment for storage in tub
         '''
+        # TODO make sure this function works to seperate out the adv images and the normal images
+        # would like to feed adv images to the tubwriter to save in seperate folder
         def __init__(self, cfg):
             self.attack_freq = cfg.ADV_ATTACK
             self.img_h = cfg.IMAGE_H
@@ -286,19 +252,15 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
            'str']
 
     if cfg.DONKEY_GYM:
-        V.add(envInfoHandler(cfg), inputs=['env/info', inf_input, 'img/old', 'tub/num_records'], outputs=['env/cte','env/pos_x', 'env/pos_z', inf_input, 'adv/img'])
-        inputs.append('env/cte')
-        inputs.append('env/pos_x')
-        inputs.append('env/pos_z')
-        inputs.append('adv/img')
-        types.append('float')
-        types.append('float')
-        types.append('float')
-        types.append('image_array')
+        V.add(EnvInfoHandler(cfg), inputs=['env/info', 'cam/image_array', 'img/old', 'tub/num_records'], 
+            outputs=['env/cte','env/pos_x', 'env/pos_z', 'cam/image_array', 'adv/img'])
+        inputs += ['env/cte', 'env/pos_x', 'env/pos_z', 'adv/img']
+        types += ['float', 'float', 'float', 'image_array']
 
-    th = TubHandler(path=cfg.DATA_PATH)
-    tub = th.new_tub_writer(inputs=inputs, types=types, user_meta=meta)
-    V.add(tub, inputs=inputs, outputs=["tub/num_records"], run_condition='recording')
+    tub_path = TubHandler(path=cfg.DATA_PATH).create_tub_path() if \
+        cfg.AUTO_CREATE_NEW_TUB else cfg.DATA_PATH
+    tub_writer = TubWriter(tub_path, inputs=inputs, types=types, metadata=meta)
+    V.add(tub_writer, inputs=inputs, outputs=["tub/num_records"], run_condition='recording')
 
 
     print("You can now go to http://localhost:%d to drive your car." % cfg.WEB_CONTROL_PORT)
@@ -319,24 +281,5 @@ if __name__ == '__main__':
               model_type=model_type,
               adv=args['--adv'],
               meta=args['--meta'])
-
-    if args['train']:
-        from train import multi_train, preprocessFileList
-
-        tub = args['--tub']
-        model = args['--model']
-        transfer = args['--transfer']
-        model_type = args['--type']
-        continuous = args['--continuous']
-        aug = args['--aug']
-        dirs = preprocessFileList( args['--file'] )
-
-        if tub is not None:
-            tub_paths = [os.path.expanduser(n) for n in tub.split(',')]
-            dirs.extend( tub_paths )
-
-        if model_type is None:
-            model_type = cfg.DEFAULT_MODEL_TYPE
-            print("using default model type of", model_type)
-
-        multi_train(cfg, dirs, model, transfer, model_type, continuous, aug)
+    elif args['train']:
+        print('Use python train.py instead.\n')

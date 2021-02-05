@@ -97,7 +97,7 @@ class RemoteWebServer():
 
 class LocalWebController(tornado.web.Application):
 
-    def __init__(self, port=8887, mode='user'):
+    def __init__(self, port=8887, mode='user', adv=False):
         '''
         Create and publish variables needed on many of
         the web handlers.
@@ -112,6 +112,7 @@ class LocalWebController(tornado.web.Application):
         self.mode = mode
         self.recording = False
         self.port = port
+        self.adv = adv
 
         self.num_records = 0
         self.wsclients = []
@@ -156,6 +157,8 @@ class LocalWebController(tornado.web.Application):
                 pass
 
     def run_threaded(self, img_arr=None, num_records=0):
+        if self.adv:
+            img_arr=img_arr.reshape((1,) + img_arr.shape)
         self.img_arr = img_arr
         self.num_records = num_records
 
