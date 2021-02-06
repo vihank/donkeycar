@@ -171,6 +171,8 @@ class LocalWebController(tornado.web.Application):
         return self.angle, self.throttle, self.mode, self.recording
 
     def run(self, img_arr=None):
+        if self.adv:
+            img_arr=img_arr.reshape((1,) + img_arr.shape)
         self.img_arr = img_arr
         return self.angle, self.throttle, self.mode, self.recording
 

@@ -325,25 +325,43 @@ class ShowHistogram(BaseCommand):
         Produce a histogram of record type frequency in the given tub
         '''
         from matplotlib import pyplot as plt
-        from donkeycar.parts.datastore import TubGroup
+        from donkeycar.parts.tub_v2 import Tub
+        import pandas as pd
 
+        base_path = Path(os.path.expanduser(tub_paths)).absolute().as_posix()
         output = out or os.path.basename(tub_paths)
-        tg = TubGroup(tub_paths=tub_paths)
+        tub = Tub(base_path)
+        records = list(tub)
+        pos_x = []
+        pos_z = []
+        cte = []
+        data = []
 
-        if record_name is not None:
-            tg.df[record_name].hist(bins=50)
-        else:
+        for record in records[400:-100]:
+            if record_name is None:
+                if 'env/cte' in record:
+                    pos_x.append(record['env/pos_x'])
+                    pos_z.append(record['env/pos_z'])
+                    cte.append(record['env/cte'])
+            else:
+                data.append(record[record_name])
+
+
+        if record_name is None:
+            data_df = pd.DataFrame({'env/pos_x': pos_x, 'env/pos_z': pos_z, 'env/cte': cte})
             try:
                 pos = plt
-                pos.plot(tg.df['env/pos_x'], tg.df['env/pos_z'])
+                pos.plot(data_df['env/pos_x'], data_df['env/pos_z'])
                 pos.xlabel('X Position')
                 pos.ylabel('Y Position')
                 pos.title('Position of Car')
-                plt.figure()
             except Exception as e:
                 print(e)
-            tg.df.hist(bins=50)
-            plt.figtext(0.2,0.7, tg.df['env/cte'].describe().loc[['count']].to_string() + "records")
+            data_df.hist(bins=50)
+            plt.figtext(0.6, 0.1, data_df['env/cte'].describe().to_string())
+        else:
+            data_df = pd.DataFrame({record_name, data})
+            data_df[record_name].hist(bins=50)
   
         try:
             if out is not None:
@@ -366,7 +384,7 @@ class ShowHistogram(BaseCommand):
 
 class hotLap(BaseCommand):
     '''
-    find best lap out of tub and create histogram of data 
+    find best lap in terms of minimal env/cte variance out of tub and create histogram of data 
     '''
     #looks through saved data to find one lap where env/cte variance is minimized
     #within 5 units of 50 for env/pos_x and within 5 of 50 for env/pos_z is one lap

@@ -9,11 +9,11 @@ class AdvAttack:
         self.attack_freq = attack_freq
         self.attackCount = 0
         self.epsilon = eps
+        print('with attacks!')
 
     
     def adversarial_pattern(self, image, label):
         image = tf.cast(image, tf.float32)
-        pred = 0
         
         with tf.GradientTape() as tape:
             tape.watch(image)
@@ -23,7 +23,6 @@ class AdvAttack:
         gradient = tape.gradient(loss, image)
         
         signed_grad = tf.sign(gradient)
-        print(f'There has been {self.attackCount} attacks' )
         
         return signed_grad
 
@@ -34,7 +33,7 @@ class AdvAttack:
             ang = self.kl.model.predict(image)
             
             perturbation = self.adversarial_pattern(image, ang).numpy()
-            perturb = ((perturbation[0]*0.5 + 0.5)*255)
+            perturb = ((perturbation[0]*0.5 + 0.5)*255)-50
             adv_img = np.clip(img + (perturb*self.epsilon), 0, 255)
             adv_img = adv_img.astype(int)
 
@@ -51,6 +50,6 @@ class AdvAttack:
             axs[1].imshow(img)
             axs[2].imshow(adv_img)
             plt.show()'''
-            return adv_img, img
+            return adv_img, img, ang[0][0]
         else: 
-            return img, None
+            return img, None, None
