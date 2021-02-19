@@ -17,13 +17,9 @@ from donkeycar.pipeline.types import TubRecord
 
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.layers import Input, Dense
-from tensorflow.keras.layers import Convolution2D, MaxPooling2D, \
-    BatchNormalization
-from tensorflow.keras.layers import Activation, Dropout, Flatten
-from tensorflow.keras.layers import LSTM
-from tensorflow.keras.layers import TimeDistributed as TD
-from tensorflow.keras.layers import Conv3D, MaxPooling3D, Conv2DTranspose
+from tensorflow.keras.layers import Input, Dense, ReLU, Add, AveragePooling2D, Convolution2D, MaxPooling2D,\
+     BatchNormalization, Activation, Dropout, Flatten, LSTM, TimeDistributed as TD, Conv3D, MaxPooling3D, \
+     Conv2DTranspose
 from tensorflow.keras.backend import concatenate
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
@@ -463,12 +459,170 @@ class KerasDave2(KerasPilot):
                   {'angle_out': tf.TensorShape([])})
         return shapes
 
+class KerasVGG(KerasPilot):
+    '''
+    The KerasDave pilot is my attempt at an end-to-end model that mimics the VGG network.
+    '''
+    def __init__(self, input_shape=(120, 160, 3), roi_crop=(0, 0), *args, **kwargs):
+        super(KerasVGG, self).__init__(*args, **kwargs)
+        self.model = default_vgg(input_shape, roi_crop)
+        self.compile()
+
+    def compile(self):
+        self.model.compile(optimizer=self.optimizer, metrics=['acc'], loss='mse')
+
+    def inference(self, img_arr, other_arr):
+        if img_arr is None:
+            print('no image')
+            return 0.0, 0.0
+
+        img_arr = img_arr.reshape((1,) + img_arr.shape)
+        output = self.model.predict(img_arr)
+        angle = output[0][0]
+        return angle, 0.45
+
+    def y_transform(self, record: TubRecord):
+        angle: float = record.underlying['user/angle']
+        throttle: float = record.underlying['user/throttle']
+        return angle, throttle
+
+    def y_translate(self, y: XY) -> Dict[str, Union[float, np.ndarray]]:
+        if isinstance(y, tuple):
+            angle, _ = y
+            return {'angle_out': angle}
+        else:
+            raise TypeError('Expected tuple')
+
+    def output_shapes(self):
+        # need to cut off None from [None, 120, 160, 3] tensor shape
+        img_shape = self.get_input_shape()[1:]
+        shapes = ({'img_in': tf.TensorShape(img_shape)},
+                  {'angle_out': tf.TensorShape([])})
+        return shapes
+
+class KerasResNet(KerasPilot):
+    '''
+    The KerasDave pilot is my attempt at an end-to-end model that mimics the VGG network.
+    '''
+    def __init__(self, input_shape=(120, 160, 3), roi_crop=(0, 0), *args, **kwargs):
+        super(KerasResNet, self).__init__(*args, **kwargs)
+        self.model = default_resnet(input_shape, roi_crop)
+        self.compile()
+
+    def compile(self):
+        self.model.compile(optimizer=self.optimizer, metrics=['acc'], loss='mse')
+
+    def inference(self, img_arr, other_arr):
+        if img_arr is None:
+            print('no image')
+            return 0.0, 0.0
+
+        img_arr = img_arr.reshape((1,) + img_arr.shape)
+        output = self.model.predict(img_arr)
+        angle = output[0][0]
+        return angle, 0.45
+
+    def y_transform(self, record: TubRecord):
+        angle: float = record.underlying['user/angle']
+        throttle: float = record.underlying['user/throttle']
+        return angle, throttle
+
+    def y_translate(self, y: XY) -> Dict[str, Union[float, np.ndarray]]:
+        if isinstance(y, tuple):
+            angle, _ = y
+            return {'angle_out': angle}
+        else:
+            raise TypeError('Expected tuple')
+
+    def output_shapes(self):
+        # need to cut off None from [None, 120, 160, 3] tensor shape
+        img_shape = self.get_input_shape()[1:]
+        shapes = ({'img_in': tf.TensorShape(img_shape)},
+                  {'angle_out': tf.TensorShape([])})
+        return shapes
 
 def adjust_input_shape(input_shape, roi_crop):
     height = input_shape[0]
     new_height = height - roi_crop[0] - roi_crop[1]
     return (new_height, input_shape[1], input_shape[2])
 
+def default_resnet(input_shape, roi_crop):
+    
+    input_shape = adjust_input_shape(input_shape, roi_crop)
+
+    img_in = Input(shape=input_shape, name='img_in')
+    num_filters = 16
+    
+    x = img_in
+    x = BatchNormalization()(x)
+    x = Convolution2D(kernel_size=3, strides=1, filters=num_filters, padding="same")(x)
+    x = relu_bn(x)
+    
+    num_blocks_list = [1, 3, 3, 1]
+    for i in range(len(num_blocks_list)):
+        num_blocks = num_blocks_list[i]
+        for j in range(num_blocks):
+            x = residual_block(x, downsample=(j==0 and i!=0), filters=num_filters)
+        num_filters *= 2
+    
+    x = AveragePooling2D(4)(x)
+    x = Flatten()(x)
+    angle_out = Dense(1, activation='linear', name='angle_out')(x)
+    
+    x = Model(inputs=[img_in], outputs=angle_out)
+
+    return x
+
+def residual_block(x, downsample: bool, filters: int, kernel_size: int = 3):
+    y = Convolution2D(kernel_size=kernel_size, strides= (1 if not downsample else 2), filters=filters, padding="same")(x)
+    y = relu_bn(y)
+    y = Convolution2D(kernel_size=kernel_size, strides=1, filters=filters, padding="same")(y)
+
+    if downsample:
+        x = Convolution2D(kernel_size=1, strides=2, filters=filters, padding="same")(x)
+    out = Add()([x, y])
+    out = relu_bn(out)
+    return out
+
+def relu_bn(inputs):
+    relu = ReLU()(inputs)
+    bn = BatchNormalization()(relu)
+    return bn
+
+def default_vgg(input_shape=(120, 160, 3), roi_crop=(0, 0)):
+    '''
+    implementation of DAVE-2 model architecture
+    '''
+    drop = 0.2
+
+    #we now expect that cropping done elsewhere. we will adjust our expected image size here:
+    input_shape = adjust_input_shape(input_shape, roi_crop)
+
+    img_in = Input(shape=input_shape, name='img_in')
+
+    x = img_in
+    x = (Convolution2D(32, (3,3), padding='same', activation='relu', name="conv2d_1"))(x)
+    x = (MaxPooling2D(pool_size=(2,2), strides=(2,2)))(x)
+    x = (Convolution2D(64, (3,3), padding='same', activation='relu', name="conv2d_2"))(x)
+    x = (MaxPooling2D(pool_size=(2,2), strides=(2,2)))(x)
+
+    x = (Convolution2D(128, (3,3), padding='same', activation='relu', name="conv2d_3"))(x)
+    x = (MaxPooling2D(pool_size=(2,2), strides=(2,2)))(x)
+
+    x = (Convolution2D(128, (3,3), strides=(1,1), activation='relu', name="conv2d_4"))(x)
+    x = (MaxPooling2D(pool_size=(2,2), strides=(2,2)))(x)
+    x = (Dropout(drop))(x)
+    x = (Flatten(name='flattened'))(x)
+    x = (Dense(75, activation='relu'))(x)
+    x = (Dropout(drop))(x)
+    x = (Dense(50, activation='relu'))(x)
+    x = (Dropout(drop))(x)
+    
+    angle_out = Dense(1, activation='linear', name='angle_out')(x)
+
+    x = Model(inputs=[img_in], outputs=angle_out)
+
+    return x
 
 def default_dave2(input_shape=(120, 160, 3), roi_crop=(0, 0)):
     '''

@@ -418,7 +418,7 @@ def get_model_by_type(model_type: str, cfg: 'Config') -> 'KerasPilot':
     '''
     from donkeycar.parts.keras import KerasPilot, KerasCategorical, \
         KerasLinear, KerasInferred, KerasCategorical, KerasIMU, \
-        KerasDave2
+        KerasDave2, KerasVGG, KerasResNet
     from donkeycar.parts.tflite import TFLitePilot
 
     if model_type is None:
@@ -434,6 +434,10 @@ def get_model_by_type(model_type: str, cfg: 'Config') -> 'KerasPilot':
         kl = TFLitePilot()
     elif model_type == "dave2":
         kl = KerasDave2(input_shape=input_shape, roi_crop=(0, 0))
+    elif model_type == "vgg":
+        kl = KerasVGG(input_shape=input_shape, roi_crop=(0,0))
+    elif model_type == "resnet":
+        kl = KerasResNet(input_shape=input_shape, roi_crop=(0,0))
     elif model_type == "imu":
         kl = KerasIMU(num_outputs=2, num_imu_inputs=6, input_shape=input_shape, roi_crop=roi_crop)
     elif model_type == "linear":

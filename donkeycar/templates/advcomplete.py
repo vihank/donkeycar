@@ -163,10 +163,10 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
 
         if adv:
             from donkeycar.parts.advattack import AdvAttack
-
+            # TODO pass out pred/ang/old from prediction within the attack
             V.add(AdvAttack(kl, cfg.ADV_ATTACK, cfg.ADV_EPSILON), 
                 inputs=['cam/image_array', "tub/num_records"],
-                outputs=['cam/image_array', 'img/old'])
+                outputs=['cam/image_array', 'img/old', 'pred/ang/old'])
 
         V.add(kl, inputs=['cam/image_array'],
             outputs=['pilot/angle', 'pilot/throttle'],
@@ -220,42 +220,43 @@ def drive(cfg, model_path=None, model_type=None, adv=False, meta=[]):
         '''
         Breaks down info returned from environment for storage in tub
         '''
-        # TODO make sure this function works to seperate out the adv images and the normal images
         # would like to feed adv images to the tubwriter to save in seperate folder
-        def __init__(self, cfg):
-            self.attack_freq = cfg.ADV_ATTACK
-            self.img_h = cfg.IMAGE_H
-            self.img_w = cfg.IMAGE_W
-            self.img_d = cfg.IMAGE_DEPTH
+        # TODO gather the pred/ang/old and save them in tub
+        def __init__(self, attack_freq):
+            self.attack_freq = attack_freq
 
-        def run(self, info, img, img_old, num_rec):
+        def run(self, info, img, img_old):
             cte=info['cte']
             pos_x = info['pos'][0]
             pos_z = info['pos'][2]
 
-            if num_rec != None and num_rec % self.attack_freq == 0:
+            img = img.reshape((1,) + img.shape)
+
+            if img_old is not None:
                 temp_img = img
                 img = img_old
                 img_adv = temp_img
+                img = img.reshape((1,) + img.shape)
             else:
-                img_adv = np.zeros((self.img_h, self.img_w, self.img_d))
+                img_adv = None
 
             return cte, pos_x, pos_z, img, img_adv
 
     #add tub to save data
     inputs=['cam/image_array',
-            'user/angle', 'user/throttle',
-            'user/mode']
+            'angle', 'user/mode']
 
     types=['image_array',
-           'float', 'float',
-           'str']
+           'float', 'str']
 
     if cfg.DONKEY_GYM:
-        V.add(EnvInfoHandler(cfg), inputs=['env/info', 'cam/image_array', 'img/old', 'tub/num_records'], 
+        V.add(EnvInfoHandler(cfg.ADV_ATTACK), inputs=['env/info', 'cam/image_array', 'img/old'], 
             outputs=['env/cte','env/pos_x', 'env/pos_z', 'cam/image_array', 'adv/img'])
-        inputs += ['env/cte', 'env/pos_x', 'env/pos_z', 'adv/img']
-        types += ['float', 'float', 'float', 'image_array']
+        inputs += ['env/cte', 'env/pos_x', 'env/pos_z']
+        types += ['float', 'float', 'float']
+        if adv:
+            inputs += ['adv/img','pred/ang/old']
+            types += ['image_array', 'float']
 
     tub_path = TubHandler(path=cfg.DATA_PATH).create_tub_path() if \
         cfg.AUTO_CREATE_NEW_TUB else cfg.DATA_PATH

@@ -340,9 +340,11 @@ class ShowHistogram(BaseCommand):
         for record in records[400:-100]:
             if record_name is None:
                 if 'env/cte' in record:
-                    pos_x.append(record['env/pos_x'])
-                    pos_z.append(record['env/pos_z'])
                     cte.append(record['env/cte'])
+
+                    if 'env/pos_x' in record:
+                        pos_x.append(record['env/pos_x'])
+                        pos_z.append(record['env/pos_z'])
             else:
                 data.append(record[record_name])
 
@@ -467,6 +469,52 @@ class hotLap(BaseCommand):
         args.tub = ','.join(args.tub)
         bestLap = self.findBestLap(args.tub)
         self.create_plots(bestLap, args.record, args.out, args.tub)
+
+class VirtualDrive(BaseCommand):
+    '''
+    Gather images from tub and run model with attack on it to see the difference in steering angles
+    '''
+    def parse_args(aelf, args):
+        parser = argparse.ArgumentParser(prog='virtualdrive', usage='%(prog)s [options]')
+        parser.add_argument('--tub', nargs='+', help='paths to tubs')
+        parser.add_argument('--model', default='./models/drive.h5', help='path to model')
+        parser.add_argument('--type', default='dave2', help='type of model (linear|categorical|rnn|imu|behavior|3d|dave2|vgg|resnet)')
+        parser.add_argument('--out', defaults='.', help='location of the output image')
+
+    def run(self, args):
+        from matplotlib import pyplot as plt
+        from donkeycar.parts.tub_v2 import Tub
+        import pandas as pd
+
+        args = self.parse_args(args)
+        cfg = load_config('myconfig.py')
+        tub_path = args.tub
+        out = args.out
+
+        base_path = Path(os.path.expanduser(tub_path)).absolute().as_posix()
+        output = out or os.path.basename(tub_path)
+        tub = Tub(base_path)
+        records = list(tub)
+        img = []
+
+        for record in records[400:-100]:
+            if 'ang' in record:
+                img.append(record['cam/image_array'])
+
+        data_df = pd.DataFrame({'img': img})
+
+        print('Gathered data')
+
+        '''
+        for datapoint in data_df:
+            run the attack on the image
+            run model on image
+            run model on attacked image
+            compare both angles
+            stats?
+            save?
+        '''
+
 
 
 class ConTrain(BaseCommand):
