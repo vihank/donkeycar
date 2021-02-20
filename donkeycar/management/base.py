@@ -332,6 +332,7 @@ class ShowHistogram(BaseCommand):
         output = out or os.path.basename(tub_paths)
         tub = Tub(base_path)
         records = list(tub)
+        angle = []
         pos_x = []
         pos_z = []
         cte = []
@@ -345,22 +346,28 @@ class ShowHistogram(BaseCommand):
                     if 'env/pos_x' in record:
                         pos_x.append(record['env/pos_x'])
                         pos_z.append(record['env/pos_z'])
+
+                    if 'angle' in record:
+                        angle.append(record['angle'])
             else:
                 data.append(record[record_name])
 
 
         if record_name is None:
-            data_df = pd.DataFrame({'env/pos_x': pos_x, 'env/pos_z': pos_z, 'env/cte': cte})
+            cte_ang_df = pd.DataFrame({'env/cte': cte, 'angle': angle})
+            pos_df = pd.DataFrame({'env/pos_x': pos_x, 'env/pos_z': pos_z})
             try:
                 pos = plt
-                pos.plot(data_df['env/pos_x'], data_df['env/pos_z'])
+                pos.plot(pos_df['env/pos_x'], pos_df['env/pos_z'])
                 pos.xlabel('X Position')
                 pos.ylabel('Y Position')
                 pos.title('Position of Car')
+                filename = output + '_pos.png'
+                plt.savefig(filename)
             except Exception as e:
                 print(e)
-            data_df.hist(bins=50)
-            plt.figtext(0.6, 0.1, data_df['env/cte'].describe().to_string())
+            cte_ang_df.hist(bins=50)
+            plt.figtext(0.55, 0.6, cte_ang_df['env/cte'].describe().to_string())
         else:
             data_df = pd.DataFrame({record_name, data})
             data_df[record_name].hist(bins=50)
@@ -384,91 +391,58 @@ class ShowHistogram(BaseCommand):
         args.tub = ','.join(args.tub)
         self.show_histogram(args.tub, args.record, args.out)
 
-class hotLap(BaseCommand):
+class Stats(BaseCommand):
     '''
-    find best lap in terms of minimal env/cte variance out of tub and create histogram of data 
+    Run f-test on cte data, comparing two tubs
     '''
-    #looks through saved data to find one lap where env/cte variance is minimized
-    #within 5 units of 50 for env/pos_x and within 5 of 50 for env/pos_z is one lap
 
     def parse_args(self, args):
-        parser = argparse.ArgumentParser(prog='hotlap', usage='%(prog)s [options]')
-        parser.add_argument('--tub', nargs='+', help='paths to tubs')
-        parser.add_argument('--record', default=None, help='name of record to create histogram')
-        parser.add_argument('--out', default='tub', help='path where to save histogram end with .png')
+        parser = argparse.ArgumentParser(prog='tubhist', usage='%(prog)s [options]')
+        parser.add_argument('--tub1', nargs='+', help='paths to tub 1')
+        parser.add_argument('--tub2', nargs='+', help='paths to tub 2')
         parsed_args = parser.parse_args(args)
         return parsed_args
 
-    def findBestLap(self, tub_paths):
-        import pandas as pd
-        from donkeycar.parts.datastore import TubGroup
-        
-        tg = TubGroup(tub_paths=tub_paths)
-
-        #find index values in data for when the car passes over the finish line
-        lapIdx = [0]
-        for index, row in tg.df.iterrows():
-            if index < lapIdx[-1] + 100:
-                continue
-
-            if 45 <= row['env/pos_x'] <= 55 and 45 <= row['env/pos_z'] <= 55:
-                lapIdx.append(index)
-
-        #find the best lap in terms of least deviation from cross track error
-        bestSTD = 5000
-        bestLapId = 0
-        bestLapStart = 0
-        bestLapEnd = None
-        for idx in range(len(lapIdx)-1):
-            lapStart = lapIdx[idx]
-            lapEnd = lapIdx[idx+1]
-            currSTD = tg.df['env/cte'].iloc[lapStart:lapEnd].std()
-            if currSTD < bestSTD:
-                bestSTD = currSTD
-                bestLapStart = lapStart
-                bestLapEnd = lapEnd
-                bestLapId = idx + 1
-        print('Best standard deviation of: {}' .format(bestSTD))
-        print('Best lap: {}' .format(bestLapId))
-        print('There were {} laps in the tubs' .format(len(lapIdx-1)))
-
-        bestLap = tg.df.iloc[bestLapStart:bestLapEnd]
-
-        return bestLap
-
-    def create_plots(self, tg, record_name, output, tub):
+    def fTest(self, tub1, tub2):
         from matplotlib import pyplot as plt
-
-        pos = plt
-        pos.plot(tg['env/pos_x'], tg['env/pos_z'])
-        pos.xlabel('X Position')
-        pos.ylabel('Y Position')
-        pos.title('Position of Car on Best Lap')
-        plt.figure()
-        tg['env/cte'].hist(bins=50)
-        plt.figtext(0.2,0.7, tg['env/cte'].describe().loc[['count','std', 'min', 'max']].to_string())
-        plt.grid(False)
-        plt.title('Cross Track Error on Best Lap')
+        from donkeycar.parts.tub_v2 import Tub
+        import numpy as np
         
-        try:
-            filename = output
+        tub1_path = Path(os.path.expanduser(tub1)).absolute().as_posix()
+        tub2_path = Path(os.path.expanduser(tub2)).absolute().as_posix()
+        tub1 = Tub(tub1_path)
+        tub2 = Tub(tub2_path)
+        records1 = list(tub1)
+        records2 = list(tub2)
+        cte1 = []
+        cte2 = []
 
-            if record_name is not None:
-                filename = output + '_hist_%s.png' % record_name.replace('/', '_')
-            else:
-                tubName = tub.split('/')
-                filename = 'hotlaps/' + tubName[-1] + '_data.png'
-            plt.savefig(filename)
-            print('saving image to:', filename)
-        except Exception as e:
-            print(e)
-        plt.show()
+        for record in records1[400:-100]:
+            if 'env/cte' in record:
+                cte1.append(record['env/cte'])
+
+        for record in records2[400:-100]:
+            if 'env/cte' in record:
+                cte2.append(record['env/cte'])
+
+        print('Gathered CTE values')
+
+        std1 = np.std(cte1)
+        std2 = np.std(cte2)
+
+        if std1 > std2:
+            f_value = std1/std2
+        else:
+            f_value = std2/std1
+
+        print('The F value is: %s' % f_value)
+                
 
     def run(self, args):
         args = self.parse_args(args)
-        args.tub = ','.join(args.tub)
-        bestLap = self.findBestLap(args.tub)
-        self.create_plots(bestLap, args.record, args.out, args.tub)
+        args.tub1 = ','.join(args.tub1)
+        args.tub2 = ','.join(args.tub2)
+        self.fTest(args.tub1, args.tub2)
 
 class VirtualDrive(BaseCommand):
     '''
@@ -484,6 +458,8 @@ class VirtualDrive(BaseCommand):
     def run(self, args):
         from matplotlib import pyplot as plt
         from donkeycar.parts.tub_v2 import Tub
+        from donkecar.parts.advattack import AdvAttack
+        from donkeycar.utils import get_model_by_type
         import pandas as pd
 
         args = self.parse_args(args)
@@ -495,18 +471,24 @@ class VirtualDrive(BaseCommand):
         output = out or os.path.basename(tub_path)
         tub = Tub(base_path)
         records = list(tub)
-        img = []
+        imgs = []
 
-        for record in records[400:-100]:
-            if 'ang' in record:
-                img.append(record['cam/image_array'])
+        kl = get_model_by_type(args.type, cfg)
 
-        data_df = pd.DataFrame({'img': img})
+        attacker = AdvAttack(kl)
+
+        for record in records[200:-100]:
+            if 'cam/image_array' in record:
+                imgs.append(record['cam/image_array'])
 
         print('Gathered data')
+        
+
+        for img in imgs:
+            ang, adv_ang = attacker(img)
 
         '''
-        for datapoint in data_df:
+        for img in images:
             run the attack on the image
             run model on image
             run model on attacked image
@@ -515,31 +497,6 @@ class VirtualDrive(BaseCommand):
             save?
         '''
 
-
-
-class ConTrain(BaseCommand):
-    '''
-    continuously train data
-    '''
-    
-    def parse_args(self, args):
-        parser = argparse.ArgumentParser(prog='contrain', usage='%(prog)s [options]')
-        parser.add_argument('--tub', default='./cont_data/*', help='paths to tubs')
-        parser.add_argument('--model', default='./models/drive.h5', help='path to model')
-        parser.add_argument('--transfer', default=None, help='path to transfer model')
-        parser.add_argument('--type', default='categorical', help='type of model (linear|categorical|rnn|imu|behavior|3d)')
-        parser.add_argument('--aug', action="store_true", help='perform image augmentation')        
-        parsed_args = parser.parse_args(args)
-        return parsed_args
-
-    def run(self, args):
-        args = self.parse_args(args)
-        cfg = load_config('config.py')
-        import sys
-        sys.path.append('.')
-        from train import multi_train
-        continuous = True
-        multi_train(cfg, args.tub, args.model, args.transfer, args.type, continuous, args.aug)
 
 
 class ShowCnnActivations(BaseCommand):
@@ -741,7 +698,7 @@ def execute_from_command_line():
             'createjs': CreateJoystick,
             'cnnactivations': ShowCnnActivations,
             'update': UpdateCar,
-            'bestlap': hotLap,
+            'research': Stats,
             'train': Train,
     }
     

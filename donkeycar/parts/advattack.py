@@ -4,7 +4,7 @@ import numpy as np
 
 class AdvAttack:
 
-    def __init__(self, kl, attack_freq, eps):
+    def __init__(self, kl, attack_freq=5, eps=0.2):
         self.kl = kl
         self.attack_freq = attack_freq
         self.attackCount = 0
@@ -53,3 +53,15 @@ class AdvAttack:
             return adv_img, img, ang[0][0]
         else: 
             return img, None, None
+
+    def __call__(self, img):
+        self.attackCount+=1
+        image = img.reshape((1,) + img.shape)
+        ang = self.kl.model.predict(image)
+
+        perturbation = self.adversarial_pattern(image, ang).numpy()
+        perturb = ((perturbation[0]*0.5 + 0.5)*255)-50
+        adv_img = np.clip(img + (perturb*self.epsilon), 0, 255)
+        adv_img = adv_img.astype(int)
+        adv_ang = self.kl.model.predict(adv_img)
+        return ang, adv_ang
