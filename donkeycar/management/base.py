@@ -404,9 +404,9 @@ class Stats(BaseCommand):
         return parsed_args
 
     def fTest(self, tub1, tub2):
-        from matplotlib import pyplot as plt
         from donkeycar.parts.tub_v2 import Tub
         import numpy as np
+        import scipy.stats as stats
         
         tub1_path = Path(os.path.expanduser(tub1)).absolute().as_posix()
         tub2_path = Path(os.path.expanduser(tub2)).absolute().as_posix()
@@ -427,15 +427,20 @@ class Stats(BaseCommand):
 
         print('Gathered CTE values')
 
-        std1 = np.std(cte1)
-        std2 = np.std(cte2)
+        var1 = np.var(cte1, ddof=1)
+        var2 = np.var(cte2, ddof=1)
+        df1 = len(cte1)-1
+        df2 = len(cte2)-1
 
-        if std1 > std2:
-            f_value = std1/std2
+        if var1 > var2:
+            f_value = var1/var2
+            p_value = 1-stats.f.cdf(f_value, df1, df2)
         else:
-            f_value = std2/std1
+            f_value = var2/var1
+            p_value = 1-stats.f.cdf(f_value, df2, df1)
 
         print('The F value is: %s' % f_value)
+        print('The P-value is: %s' % p_value)
                 
 
     def run(self, args):
