@@ -395,14 +395,40 @@ class Research(BaseCommand):
     '''
     Run f-test on cte data, comparing two tubs
     '''
-
     def parse_args(self, args):
         parser = argparse.ArgumentParser(prog='tubhist', usage='%(prog)s [options]')
         parser.add_argument('--rate', action='store_true', help='finds attack success rate of tub1')
+        parser.add_argument('--norm', action='store_true', help='image norm between attacked and original image')
         parser.add_argument('--tub1', nargs='+', help='paths to tub 1')
         parser.add_argument('--tub2', nargs='+', help='paths to tub 2')
         parsed_args = parser.parse_args(args)
         return parsed_args
+
+    def norm(self, tub1):
+        from donkeycar.parts.tub_v2 import Tub
+        import numpy as np
+        from PIL import Image
+
+        tub_path = Path(os.path.expanduser(tub1)).absolute().as_posix()
+        tub = Tub(tub_path)
+        records = list(tub)
+        imgs = []
+        adv_imgs = []
+
+        for i in range(len(records[400:-100])):
+            if 'adv/img' in records[i+400]:
+                img_path = os.path.join(tub.images_base_path, records[i+400]['cam/image_array'])
+                adv_img_path = os.path.join(tub.images_base_path, records[i+400]['adv/img'])
+                image = img_to_arr(Image.open(img_path))
+                adv_image = img_to_arr(Image.open(adv_img_path))
+                imgs.append(image)
+                adv_imgs.append(adv_image)
+
+        sum = 0
+        for i in range(len(imgs)):
+            sum += np.sqrt(np.sum((adv_imgs[i]-imgs[i])**2))
+
+        print(f'The image norm between attacked and not attacked images in {tub1} is %s' % (sum/len(imgs)))
 
     def successRate(self, tub1):
         from donkeycar.parts.tub_v2 import Tub
@@ -415,12 +441,12 @@ class Research(BaseCommand):
         
         for i in range(len(records[400:-100])):
             if 'adv/img' in records[i+400]:
-                attack_ang.append(records[i+400]['ang'])
-                pre_attack_ang.append(records[i+399]['ang'])
+                attack_ang.append(records[i+400]['angle'])
+                pre_attack_ang.append(records[i+399]['angle'])
         
         count = 0
         for i in range(len(attack_ang)):
-            if abs(attack_ang[i] - pre_attack_ang[i]) > 0.1:
+            if abs(attack_ang[i] - pre_attack_ang[i]) >= 0.1:
                 count+=1
         
         success_rate = count/len(attack_ang)
@@ -470,9 +496,13 @@ class Research(BaseCommand):
     def run(self, args):
         args = self.parse_args(args)
         args.tub1 = ','.join(args.tub1)
-        args.tub2 = ','.join(args.tub2)
+        if args.tub2:
+            args.tub2 = ','.join(args.tub2)
+
         if args.rate:
             self.successRate(args.tub1)
+        elif args.norm:
+            self.norm(args.tub1)
         else:
             self.fTest(args.tub1, args.tub2)
 
@@ -730,7 +760,7 @@ def execute_from_command_line():
             'createjs': CreateJoystick,
             'cnnactivations': ShowCnnActivations,
             'update': UpdateCar,
-            'research': Stats,
+            'research': Research,
             'train': Train,
     }
     
