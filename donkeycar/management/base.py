@@ -391,17 +391,41 @@ class ShowHistogram(BaseCommand):
         args.tub = ','.join(args.tub)
         self.show_histogram(args.tub, args.record, args.out)
 
-class Stats(BaseCommand):
+class Research(BaseCommand):
     '''
     Run f-test on cte data, comparing two tubs
     '''
 
     def parse_args(self, args):
         parser = argparse.ArgumentParser(prog='tubhist', usage='%(prog)s [options]')
+        parser.add_argument('--rate', action='store_true', help='finds attack success rate of tub1')
         parser.add_argument('--tub1', nargs='+', help='paths to tub 1')
         parser.add_argument('--tub2', nargs='+', help='paths to tub 2')
         parsed_args = parser.parse_args(args)
         return parsed_args
+
+    def successRate(self, tub1):
+        from donkeycar.parts.tub_v2 import Tub
+
+        tub_path = Path(os.path.expanduser(tub1)).absolute().as_posix()
+        tub = Tub(tub_path)
+        records = list(tub)
+        attack_ang = []
+        pre_attack_ang = []
+        
+        for i in range(len(records[400:-100])):
+            if 'adv/img' in records[i+400]:
+                attack_ang.append(records[i+400]['ang'])
+                pre_attack_ang.append(records[i+399]['ang'])
+        
+        count = 0
+        for i in range(len(attack_ang)):
+            if abs(attack_ang[i] - pre_attack_ang[i]) > 0.1:
+                count+=1
+        
+        success_rate = count/len(attack_ang)
+
+        print(f'The success rate for {tub1} is %s' % (success_rate*100))
 
     def fTest(self, tub1, tub2):
         from donkeycar.parts.tub_v2 import Tub
@@ -447,7 +471,10 @@ class Stats(BaseCommand):
         args = self.parse_args(args)
         args.tub1 = ','.join(args.tub1)
         args.tub2 = ','.join(args.tub2)
-        self.fTest(args.tub1, args.tub2)
+        if args.rate:
+            self.successRate(args.tub1)
+        else:
+            self.fTest(args.tub1, args.tub2)
 
 class VirtualDrive(BaseCommand):
     '''
